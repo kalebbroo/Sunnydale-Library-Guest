@@ -1,0 +1,201 @@
+/* Sunnydale Library guest portal — mobile-first.
+   No external @import / CDN — captive portals will block them.
+   Color vars at the top so a future after-dark mode can swap them. */
+:root {
+    --bg: #f4ead2;
+    --paper: #fbf6e7;
+    --ink: #2b1d10;
+    --rule: #8a6a3c;
+    --accent: #6b1d1d;
+    --muted: #6b5c43;
+    --shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+    --serif: Georgia, "Hoefler Text", "Times New Roman", Times, serif;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.45;
+    -webkit-text-size-adjust: 100%;
+}
+
+a {
+    color: var(--accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+.library {
+    min-height: 100dvh;
+    padding: 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    padding: 22px 18px 18px;
+    max-width: 520px;
+    width: 100%;
+    margin: 8px 0 24px;
+}
+
+.crest {
+    text-align: center;
+    border-bottom: 1px double var(--rule);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+}
+
+.crest h1 {
+    font-size: 1.7rem;
+    margin: 0;
+    letter-spacing: 0.02em;
+}
+
+.crest .sub {
+    font-size: 1.1rem;
+    font-style: italic;
+    color: var(--muted);
+}
+
+.crest .motto {
+    margin: 8px 0 0;
+    font-style: italic;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.hours {
+    border: 1px solid var(--rule);
+    background: rgba(255, 255, 255, 0.4);
+    padding: 10px 12px;
+    margin: 0 0 16px;
+    font-size: 0.95rem;
+}
+
+.hours strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.hours ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.hours s {
+    color: var(--muted);
+}
+
+.lead {
+    margin: 0 0 14px;
+}
+
+form.signin label {
+    display: block;
+    font-weight: bold;
+    margin: 12px 0 4px;
+}
+
+form.signin input[type="text"],
+form.signin select {
+    /* font-size 16px keeps iOS from auto-zooming on focus */
+    width: 100%;
+    font-size: 16px;
+    font-family: inherit;
+    padding: 10px 12px;
+    min-height: 44px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
+}
+
+form.signin select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%),
+                      linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 18px, calc(100% - 12px) 18px;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    padding-right: 36px;
+}
+
+form.signin .terms {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin: 16px 0 4px;
+    font-size: 0.95rem;
+}
+
+form.signin .terms input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+form.signin button {
+    margin-top: 18px;
+    width: 100%;
+    min-height: 48px;
+    font-size: 1.05rem;
+    font-family: inherit;
+    background: var(--ink);
+    color: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 3px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+}
+
+form.signin button:active {
+    transform: translateY(1px);
+}
+
+.error {
+    background: #fde7e7;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 10px 12px;
+    margin: 0 0 14px;
+    border-radius: 3px;
+}
+
+.card-footer {
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.success h1 {
+    margin-top: 0;
+}
+
+.success .hint,
+.error-card .hint {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.policy ul {
+    padding-left: 20px;
+}

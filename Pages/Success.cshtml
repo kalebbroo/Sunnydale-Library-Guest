@@ -1,0 +1,25 @@
+@page
+@model SuccessModel
+@{
+    ViewData["Title"] = "Welcome to the Library";
+    Layout = null;
+}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#3a2418" />
+    <meta http-equiv="refresh" content="1;url=@Model.RedirectUrl" />
+    <title>Welcome to the Library</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <main class="library">
+        <section class="card success">
+            <h1>Welcome to the Library</h1>
+            <p>Enjoy your research.</p>
+            <p class="hint">If you are not redirected, <a href="@Model.RedirectUrl">continue here</a>.</p>
+        </section>
+    </main>
+</body>
+</html>

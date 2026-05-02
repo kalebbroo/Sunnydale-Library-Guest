@@ -1,0 +1,64 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Sunnydale High School Library — Sign In";
+}
+
+<section class="card">
+    <header class="crest">
+        <h1>Sunnydale High School<br /><span class="sub">Library</span></h1>
+        <p class="motto">"Knowledge is the highest good."</p>
+    </header>
+
+    @* TODO(easter-egg-tier1): the "Hours" block has the evening line crossed out — already baked in below. *@
+    <aside class="hours" aria-label="Library hours">
+        <strong>Hours</strong>
+        <ul>
+            <li>Mon &ndash; Fri &nbsp; 9:00 AM &ndash; 5:00 PM</li>
+            <li><s>Evenings until 9:00 PM</s></li>
+            <li>Sat &ndash; Sun &nbsp; Closed</li>
+        </ul>
+    </aside>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <p class="error" role="alert">@Model.ErrorMessage</p>
+    }
+
+    <form method="post" action="/Success" class="signin" novalidate>
+        <p class="lead">Please sign the register before using the library&rsquo;s resources.</p>
+
+        <label for="Name">Name</label>
+        <input id="Name" name="Name" type="text" required maxlength="80"
+               autocapitalize="words" autocomplete="given-name" inputmode="text" />
+
+        <label for="Reason">Reason for visit</label>
+        <select id="Reason" name="Reason" required>
+            <option value="">&mdash; Select &mdash;</option>
+            <option value="Research">Research</option>
+            <option value="Studying">Studying</option>
+            <option value="Slaying-Related">Slaying-Related</option>
+            <option value="Just Browsing">Just Browsing</option>
+        </select>
+
+        <label class="terms">
+            <input type="checkbox" name="TermsAccepted" value="true" required />
+            <span>I&rsquo;ve read the <a href="/Policy">library policy</a> and agree to its terms.</span>
+        </label>
+
+        @* Round-trip the UniFi redirect params so Success can authorize this exact device. *@
+        <input type="hidden" name="Id" value="@Model.RedirectParams.Id" />
+        <input type="hidden" name="Ap" value="@Model.RedirectParams.Ap" />
+        <input type="hidden" name="T" value="@Model.RedirectParams.T" />
+        <input type="hidden" name="Url" value="@Model.RedirectParams.Url" />
+        <input type="hidden" name="Ssid" value="@Model.RedirectParams.Ssid" />
+
+        <button type="submit">Sign In</button>
+    </form>
+
+    <footer class="card-footer">
+        <span>&copy; 1999 Sunnydale High School Library</span>
+        @* TODO(easter-egg-tier2): card catalog floats on hover from the corner *@
+        @* TODO(easter-egg-tier3): footer year click triggers Watcher's journal modal *@
+    </footer>
+</section>

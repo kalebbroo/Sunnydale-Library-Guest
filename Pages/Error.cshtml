@@ -1,0 +1,15 @@
+@page
+@model ErrorModel
+@{
+    ViewData["Title"] = "Something Went Wrong";
+}
+
+<section class="card error-card">
+    <h1>The card catalog is jammed.</h1>
+    <p>Something went wrong. Try the sign-in page again.</p>
+    @if (Model.ShowRequestId)
+    {
+        <p class="hint">Reference: <code>@Model.RequestId</code></p>
+    }
+    <p><a href="/">&larr; Back to sign-in</a></p>
+</section>

@@ -1,0 +1,20 @@
+@{
+    string title = ViewData["Title"] as string ?? "Sunnydale High School Library";
+}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#3a2418" />
+    <meta name="referrer" content="no-referrer" />
+    <title>@title</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="icon" href="~/favicon.ico" />
+</head>
+<body>
+    <main class="library">
+        @RenderBody()
+    </main>
+    @* TODO(easter-egg-tier3): view-source ASCII art block goes here as an HTML comment *@
+</body>
+</html>
