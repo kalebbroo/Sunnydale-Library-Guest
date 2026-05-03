@@ -7,6 +7,13 @@ using System.Text.Json.Serialization;
 
 namespace SunnydaleLibrary.Services;
 
+/// <summary>
+/// Talks to a UniFi OS controller (UDM / UDM-Pro / UDM-SE / UDR).
+/// UniFi OS API differs from the standalone Network controller:
+///   - Login:        POST {ControllerUrl}/api/auth/login
+///   - Network API:  prefixed with /proxy/network/...
+///   - CSRF:         X-CSRF-Token header required after login; rotated on responses.
+/// </summary>
 public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUnifiClient
 {
     public UnifiOptions Options { get; } = options.Value;
@@ -15,6 +22,8 @@ public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUni
 
     public bool LoggedIn { get; private set; }
 
+    public string? CsrfToken { get; private set; }
+
     public async Task<bool> AuthorizeGuestAsync(string mac, string? apMac, int minutes, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(Options.ControllerUrl) || string.IsNullOrWhiteSpace(Options.Username) || string.IsNullOrWhiteSpace(Options.Password))
@@ -22,10 +31,14 @@ public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUni
             Logs.Error("UniFi not configured: ControllerUrl/Username/Password missing.");
             return false;
         }
+        if (!LoggedIn)
+        {
+            await LoginAsync(ct);
+        }
         bool ok = await TryAuthorizeAsync(mac, apMac, minutes, ct);
         if (!ok && !LoggedIn)
         {
-            // First call may have hit a stale session; try logging in once and retry.
+            // 401 path: re-login once and retry.
             await LoginAsync(ct);
             ok = await TryAuthorizeAsync(mac, apMac, minutes, ct);
         }
@@ -34,11 +47,13 @@ public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUni
 
     public async Task LoginAsync(CancellationToken ct)
     {
-        string url = $"{Options.ControllerUrl.TrimEnd('/')}/api/login";
+        string url = $"{Options.ControllerUrl.TrimEnd('/')}/api/auth/login";
         LoginRequest body = new() { Username = Options.Username, Password = Options.Password };
         try
         {
-            HttpResponseMessage resp = await Http.PostAsJsonAsync(url, body, ct);
+            HttpRequestMessage req = new(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
+            HttpResponseMessage resp = await Http.SendAsync(req, ct);
+            CaptureCsrfToken(resp);
             if (!resp.IsSuccessStatusCode)
             {
                 string text = await resp.Content.ReadAsStringAsync(ct);
@@ -46,16 +61,10 @@ public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUni
                 LoggedIn = false;
                 return;
             }
-            UnifiMeta? meta = await ParseMetaAsync(resp, ct);
-            LoggedIn = meta?.Rc == "ok";
-            if (LoggedIn)
-            {
-                Logs.Info($"UniFi login ok user={Options.Username}");
-            }
-            else
-            {
-                Logs.Error($"UniFi login refused: {meta?.Msg ?? "unknown"}");
-            }
+            // UniFi OS returns a user object on success (not the standalone {meta:{rc:"ok"}} envelope).
+            // A 200 with a non-empty TOKEN cookie + CSRF header is sufficient proof.
+            LoggedIn = true;
+            Logs.Info($"UniFi login ok user={Options.Username} csrf={(string.IsNullOrEmpty(CsrfToken) ? "none" : "captured")}");
         }
         catch (Exception ex)
         {
@@ -66,11 +75,17 @@ public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUni
 
     public async Task<bool> TryAuthorizeAsync(string mac, string? apMac, int minutes, CancellationToken ct)
     {
-        string url = $"{Options.ControllerUrl.TrimEnd('/')}/api/s/{Options.Site}/cmd/stamgr";
+        string url = $"{Options.ControllerUrl.TrimEnd('/')}/proxy/network/api/s/{Options.Site}/cmd/stamgr";
         AuthorizeRequest body = new() { Cmd = "authorize-guest", Mac = mac, Minutes = minutes, ApMac = apMac };
         try
         {
-            HttpResponseMessage resp = await Http.PostAsJsonAsync(url, body, ct);
+            HttpRequestMessage req = new(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
+            if (!string.IsNullOrEmpty(CsrfToken))
+            {
+                req.Headers.Add("X-CSRF-Token", CsrfToken);
+            }
+            HttpResponseMessage resp = await Http.SendAsync(req, ct);
+            CaptureCsrfToken(resp);
             if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
                 LoggedIn = false;
@@ -98,6 +113,30 @@ public class UnifiClient(HttpClient http, IOptions<UnifiOptions> options) : IUni
         {
             Logs.Error($"UniFi authorize exception: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// UniFi OS sets / rotates the CSRF token on responses. Capture from either header name.
+    /// </summary>
+    public void CaptureCsrfToken(HttpResponseMessage resp)
+    {
+        if (resp.Headers.TryGetValues("X-CSRF-Token", out IEnumerable<string>? csrf))
+        {
+            string? value = csrf.FirstOrDefault();
+            if (!string.IsNullOrEmpty(value))
+            {
+                CsrfToken = value;
+                return;
+            }
+        }
+        if (resp.Headers.TryGetValues("X-Updated-CSRF-Token", out IEnumerable<string>? updated))
+        {
+            string? value = updated.FirstOrDefault();
+            if (!string.IsNullOrEmpty(value))
+            {
+                CsrfToken = value;
+            }
         }
     }
 
