@@ -11,18 +11,9 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_HTTP_PORTS=8080
     ports:
-      - "8080:8080"
+      - "8732:8080"
     volumes:
       - app_logs:/app/logs
-
-  cloudflare-tunnel:
-    image: cloudflare/cloudflared:latest
-    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
-    env_file:
-      - .env
-    restart: unless-stopped
-    depends_on:
-      - web
 
 volumes:
   app_logs:

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================
 # Sunnydale Library Guest Portal — production deploy
-# Cloudflare tunnel sidecar handles TLS + ingress.
+# Container exposes the splash on host port 8732 (see docker-compose.prod.yml).
 # ============================================
 # Usage:
 #   First time:  ./deploy-production.sh --init
@@ -40,10 +40,9 @@ check_prereqs() {
     grep -qE '^UNIFI_CONTROLLER_URL=.+' "$ENV_FILE" || missing+=("UNIFI_CONTROLLER_URL")
     grep -qE '^UNIFI_USERNAME=.+'       "$ENV_FILE" || missing+=("UNIFI_USERNAME")
     grep -qE '^UNIFI_PASSWORD=.+'       "$ENV_FILE" || missing+=("UNIFI_PASSWORD")
-    grep -qE '^CLOUDFLARE_TUNNEL_TOKEN=.+' "$ENV_FILE" || missing+=("CLOUDFLARE_TUNNEL_TOKEN")
     if [ ${#missing[@]} -gt 0 ]; then
         warn "These values look empty in $ENV_FILE: ${missing[*]}"
-        warn "(continuing anyway; the tunnel will fail without the token, and authorize-guest will fail without UniFi creds)"
+        warn "(continuing anyway; authorize-guest calls will fail until creds are filled in)"
     fi
 }
 
@@ -70,10 +69,11 @@ init() {
     echo ""
     log "============================================"
     log "  Initial deployment complete!"
+    log "  Portal is reachable on this host at:  http://<lan-ip>:8732/"
     log "  Reminder:"
-    log "    - In Cloudflare Zero Trust, point the tunnel hostname (guest.hartsy.ai) at http://web:8080"
-    log "    - In UniFi Hotspot settings, point External Portal at this server's LAN IP"
-    log "    - Add the same LAN IP + portal port to UniFi's Pre-Authorization Access list"
+    log "    - UniFi Hotspot → External Portal Server: this host's LAN IP (no scheme, no port)"
+    log "    - UniFi Pre-Authorization Access list: add <lan-ip>:8732"
+    log "    - Guest VLAN firewall: allow Guest -> <lan-ip>:8732"
     log "============================================"
 }
 

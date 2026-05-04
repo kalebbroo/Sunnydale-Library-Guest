@@ -10,26 +10,11 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_HTTP_PORTS=8080
+    ports:
+      - "8732:8080"
     volumes:
       - app_logs:/app/logs
     restart: unless-stopped
-    networks:
-      - webnet
-
-  cloudflare-tunnel:
-    image: cloudflare/cloudflared:latest
-    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
-    env_file:
-      - .env.production
-    restart: unless-stopped
-    depends_on:
-      - web
-    networks:
-      - webnet
 
 volumes:
   app_logs:
-
-networks:
-  webnet:
-    driver: bridge

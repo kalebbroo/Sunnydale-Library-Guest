@@ -85,7 +85,7 @@ public class Program
 
         WebApplication app = builder.Build();
 
-        // Cloudflare tunnel terminates TLS upstream; honor X-Forwarded-* so Request.Scheme is right.
+        // If a reverse proxy is added later, honor X-Forwarded-* so Request.Scheme is right.
         ForwardedHeadersOptions forwardedOptions = new()
         {
             ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
