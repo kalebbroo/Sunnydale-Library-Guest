@@ -40,7 +40,12 @@ public class Program
         }
 
         Logs.Init("Configuring base services...");
-        builder.Services.AddRazorPages();
+        builder.Services.AddRazorPages(options =>
+        {
+            // UniFi's external portal redirect format is http://<ip>/guest/s/<site>/?id=...&ap=...
+            // Add it as an alias to the Index page so the splash renders for that path too.
+            options.Conventions.AddPageRoute("/Index", "/guest/s/{site?}");
+        });
 
         Logs.Init("Binding UniFi options...");
         builder.Services.Configure<UnifiOptions>(opts =>
