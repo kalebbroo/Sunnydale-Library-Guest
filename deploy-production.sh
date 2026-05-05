@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================
 # Sunnydale Library Guest Portal — production deploy
-# Container exposes the splash on host port 8732 (see docker-compose.prod.yml).
+# Container exposes the splash on host port 8080 (see docker-compose.prod.yml).
 # ============================================
 # Usage:
 #   First time:  ./deploy-production.sh --init
@@ -69,11 +69,11 @@ init() {
     echo ""
     log "============================================"
     log "  Initial deployment complete!"
-    log "  Portal is reachable on this host at:  http://<lan-ip>:8732/"
+    log "  Portal is reachable on this host at:  http://<lan-ip>:8080/"
     log "  Reminder:"
     log "    - UniFi Hotspot → External Portal Server: this host's LAN IP (no scheme, no port)"
-    log "    - UniFi Pre-Authorization Access list: add <lan-ip>:8732"
-    log "    - Guest VLAN firewall: allow Guest -> <lan-ip>:8732"
+    log "    - UniFi Pre-Authorization Access list: add <lan-ip>:8080"
+    log "    - Guest VLAN firewall: allow Guest -> <lan-ip>:8080"
     log "============================================"
 }
 

@@ -11,7 +11,7 @@ window, then redirects them to whatever URL they were originally trying to reach
 Guest device joins guest SSID
         ↓
 UniFi intercepts unauthorized HTTP and redirects to:
-  http://<deploy-host-lan-ip>:8732/?id=<mac>&ap=<ap-mac>&t=<ts>&url=<orig>&ssid=<ssid>
+  http://<deploy-host-lan-ip>:8080/?id=<mac>&ap=<ap-mac>&t=<ts>&url=<orig>&ssid=<ssid>
         ↓
 Splash page renders, guest fills in name + reason + accepts policy
         ↓
@@ -31,8 +31,8 @@ POST → /Success → IUnifiClient.AuthorizeGuestAsync(mac, ap, minutes)
 
 ## Port
 
-Host-exposed port: **8732**. Container-internal: 8080. UniFi has to be told to redirect
-to the host's LAN IP on port 8732. Edit `docker-compose*.yml` if you want a different
+Host-exposed port: **8080**. Container-internal: 8080. UniFi has to be told to redirect
+to the host's LAN IP on port 8080. Edit `docker-compose*.yml` if you want a different
 host port — but if your UniFi firmware forces port 80 redirects, you'll have to publish
 on 80 instead (and the deploy host needs `cap_net_bind_service` or the container has
 to be run with privileged port mapping).
@@ -65,7 +65,7 @@ Day-to-day:
    scheme, no port).
 3. **Pre-Authorization Access:** add `<deploy-host-lan-ip>` so unauthenticated guests
    can reach the portal page before they're authorized.
-4. **Guest VLAN firewall:** allow `Guest VLAN → <deploy-host-lan-ip>:8732`.
+4. **Guest VLAN firewall:** allow `Guest VLAN → <deploy-host-lan-ip>:8080`.
 
 ## Configuration
 
