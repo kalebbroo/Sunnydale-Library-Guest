@@ -1,0 +1,356 @@
+/* Stake Night — arcade overlay styling.
+   Dark cemetery palette, but the panels keep the period-library serif so it still
+   feels like part of the Sunnydale portal. Self-contained (no CDN; captive portals
+   block external fetches). */
+:root {
+    --night: #0b0a14;
+    --panel: #1a1426;
+    --ink: #f4ead2;
+    --gold: #e8c659;
+    --blood: #7a2233;
+    --muted: #b9a6c4;
+    --serif: Georgia, "Hoefler Text", "Times New Roman", Times, serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--night);
+    color: var(--ink);
+    font-family: var(--serif);
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+}
+
+#game-root {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#game-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* ---- HUD ---- */
+.hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    /* extra right padding leaves room for the mute button in the corner */
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 62px 12px 16px;
+    font-size: 1.25rem;
+    letter-spacing: 0.04em;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+.hud-score { font-weight: bold; color: var(--gold); min-width: 3ch; }
+.hud-combo { color: #ff7b7b; font-style: italic; }
+.hud-power { color: #bfe3ff; font-size: 1rem; }
+.hud-lives { color: var(--blood); letter-spacing: 2px; margin-left: auto; }
+
+/* ---- Boss health bar ---- */
+.boss-bar {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 52px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(80%, 420px);
+    text-align: center;
+    pointer-events: none;
+}
+
+.boss-bar.hidden { display: none; }
+
+.boss-bar .boss-name {
+    display: block;
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    color: #ff5b5b;
+    text-shadow: 0 2px 5px rgba(0, 0, 0, 0.8);
+    margin-bottom: 3px;
+}
+
+.boss-bar .boss-hp {
+    height: 12px;
+    background: #2a0f12;
+    border: 1px solid #6b1d1d;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.boss-bar .boss-hp i {
+    display: block;
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #7a2233, #ff3b3b);
+    transition: width 0.12s linear;
+}
+
+/* ---- On-screen touch controls ---- */
+.controls {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 18px);
+    pointer-events: none;
+}
+
+.controls.hidden { display: none; }
+
+.controls .pad {
+    display: flex;
+    gap: 12px;
+}
+
+.controls .ctl {
+    pointer-events: auto;
+    width: 64px;
+    height: 64px;
+    font-size: 1.5rem;
+    font-family: inherit;
+    color: var(--ink);
+    background: rgba(26, 20, 38, 0.55);
+    border: 1px solid #4a3a60;
+    border-radius: 12px;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.controls .ctl:active { background: rgba(232, 198, 89, 0.35); }
+
+.controls .ctl-wide { width: 84px; font-size: 0.95rem; letter-spacing: 0.06em; }
+
+.controls .ctl-primary {
+    color: var(--night);
+    background: rgba(232, 198, 89, 0.85);
+    border-color: var(--gold);
+}
+.controls .ctl-primary:active { background: var(--gold); }
+
+.panel .how.keys { font-size: 0.85rem; color: var(--muted); }
+.panel .how.keys kbd {
+    margin: 0 1px;
+}
+
+/* ---- Sound toggle ---- */
+.mute-btn {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    right: 12px;
+    z-index: 5;
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
+    line-height: 1;
+    color: var(--ink);
+    background: rgba(26, 20, 38, 0.55);
+    border: 1px solid #4a3a60;
+    border-radius: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.mute-btn:active { transform: translateY(1px); }
+
+/* ---- Overlays ---- */
+.overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: radial-gradient(ellipse at center, rgba(11, 10, 20, 0.55), rgba(11, 10, 20, 0.9));
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+
+.overlay.hidden { display: none; }
+.hidden { display: none; }
+
+.panel {
+    width: 100%;
+    max-width: 380px;
+    background: var(--panel);
+    border: 1px solid #3a2d4d;
+    border-radius: 6px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    padding: 24px 22px;
+    text-align: center;
+}
+
+.panel h1 {
+    margin: 0 0 6px;
+    font-size: 2rem;
+    color: var(--gold);
+    letter-spacing: 0.03em;
+}
+
+.panel h2 {
+    margin: 0 0 6px;
+    font-size: 1.6rem;
+    color: var(--gold);
+}
+
+.panel h3 {
+    margin: 18px 0 8px;
+    font-size: 1.1rem;
+    color: var(--muted);
+    font-style: italic;
+    font-weight: normal;
+}
+
+.panel .tag { margin: 0 0 16px; color: var(--muted); font-style: italic; }
+.panel .how { margin: 0 0 20px; font-size: 0.95rem; color: var(--ink); }
+.panel .how kbd {
+    background: #2c2238;
+    border: 1px solid #4a3a60;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-family: inherit;
+}
+
+.panel .final { font-size: 1.2rem; margin: 0 0 16px; }
+.panel .final span { color: var(--gold); font-weight: bold; }
+
+/* ---- Buttons / links ---- */
+.arcade-btn {
+    display: inline-block;
+    width: 100%;
+    min-height: 50px;
+    margin-top: 6px;
+    font-size: 1.1rem;
+    font-family: inherit;
+    letter-spacing: 0.06em;
+    color: var(--night);
+    background: var(--gold);
+    border: 1px solid var(--gold);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.arcade-btn:active { transform: translateY(1px); }
+.arcade-btn:disabled { opacity: 0.6; cursor: default; }
+
+.back-link {
+    display: inline-block;
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-decoration: none;
+}
+.back-link:hover { text-decoration: underline; }
+
+/* ---- Initials entry ---- */
+.enter-label { margin: 4px 0 10px; color: var(--muted); }
+
+.initials {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.initials .char {
+    width: 64px;
+    height: 78px;
+    font-size: 2.4rem;
+    font-family: inherit;
+    color: var(--gold);
+    background: #120d1c;
+    border: 2px solid #4a3a60;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.initials .char:active { transform: translateY(1px); }
+
+.initials-hint { margin: 6px 0 16px; font-size: 0.8rem; color: var(--muted); }
+
+/* ---- Leaderboard tabs ---- */
+.board-tabs {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.board-tab {
+    flex: 1;
+    max-width: 130px;
+    min-height: 38px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    background: #120d1c;
+    border: 1px solid #3a2d4d;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.board-tab.active {
+    color: var(--night);
+    background: var(--gold);
+    border-color: var(--gold);
+}
+
+.board-tab:active { transform: translateY(1px); }
+
+/* ---- Leaderboard ---- */
+.board {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    text-align: left;
+    max-height: 46vh;
+    overflow-y: auto;
+}
+
+.board li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 7px 10px;
+    border-bottom: 1px dashed #36293f;
+}
+
+.board li .r { width: 3ch; color: var(--muted); }
+.board li .i { flex: 1; letter-spacing: 0.15em; color: var(--ink); }
+.board li .s { color: var(--gold); font-weight: bold; }
+
+.board li.you {
+    background: rgba(232, 198, 89, 0.12);
+    border-radius: 3px;
+}
+.board li.you .i { color: var(--gold); }
+
+.board li.empty {
+    justify-content: center;
+    color: var(--muted);
+    font-style: italic;
+    border-bottom: none;
+}
+
+.over-actions { margin-top: 12px; }

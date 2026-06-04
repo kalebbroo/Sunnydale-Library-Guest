@@ -84,11 +84,37 @@ public class Program
                 return handler;
             });
 
+        Logs.Init("Binding leaderboard options...");
+        builder.Services.Configure<LeaderboardOptions>(opts =>
+        {
+            builder.Configuration.GetSection("Leaderboard").Bind(opts);
+            // Env-var overrides (LEADERBOARD_*) — these win over appsettings.
+            string? dbPath = Environment.GetEnvironmentVariable("LEADERBOARD_DATABASE_PATH");
+            if (!string.IsNullOrWhiteSpace(dbPath)) { opts.DatabasePath = dbPath; }
+            string? topCount = Environment.GetEnvironmentVariable("LEADERBOARD_TOP_COUNT");
+            if (int.TryParse(topCount, out int parsedTop) && parsedTop > 0) { opts.TopCount = parsedTop; }
+            string? maxScore = Environment.GetEnvironmentVariable("LEADERBOARD_MAX_SCORE");
+            if (int.TryParse(maxScore, out int parsedMax) && parsedMax > 0) { opts.MaxScore = parsedMax; }
+            string? cooldown = Environment.GetEnvironmentVariable("LEADERBOARD_SUBMIT_COOLDOWN_SECONDS");
+            if (int.TryParse(cooldown, out int parsedCooldown) && parsedCooldown >= 0) { opts.SubmitCooldownSeconds = parsedCooldown; }
+            string? signingKey = Environment.GetEnvironmentVariable("LEADERBOARD_SIGNING_KEY");
+            if (!string.IsNullOrWhiteSpace(signingKey)) { opts.SigningKey = signingKey; }
+            string? requireToken = Environment.GetEnvironmentVariable("LEADERBOARD_REQUIRE_RUN_TOKEN");
+            if (bool.TryParse(requireToken, out bool parsedRequire)) { opts.RequireRunToken = parsedRequire; }
+            string? ppsCap = Environment.GetEnvironmentVariable("LEADERBOARD_POINTS_PER_SECOND_CAP");
+            if (int.TryParse(ppsCap, out int parsedPps) && parsedPps > 0) { opts.PointsPerSecondCap = parsedPps; }
+        });
+
         Logs.Init("Registering domain services...");
-        builder.Services.AddSingleton<IEasterEggService, NullEasterEggService>();
+        builder.Services.AddSingleton<ILeaderboardService, LeaderboardService>();
+        builder.Services.AddSingleton<IRunTokenService, RunTokenService>();
         builder.Services.AddScoped<IGuestSessionService, GuestSessionService>();
 
         WebApplication app = builder.Build();
+
+        Logs.Init("Ensuring leaderboard schema...");
+        app.Services.GetRequiredService<ILeaderboardService>()
+            .EnsureSchemaAsync(GlobalProgramCancel).GetAwaiter().GetResult();
 
         // If a reverse proxy is added later, honor X-Forwarded-* so Request.Scheme is right.
         ForwardedHeadersOptions forwardedOptions = new()
@@ -111,6 +137,50 @@ public class Program
         app.UseStaticFiles();
         app.UseRouting();
         app.MapRazorPages();
+
+        // --- Stake Night leaderboard API (public read, guarded write; consumed by wwwroot/js/game.js) ---
+
+        // Issue a signed run token at the start of a play session (anti-cheat; see RunTokenService).
+        app.MapPost("/api/run/start", (IRunTokenService tokens) => Results.Ok(new { token = tokens.Issue() }));
+
+        app.MapGet("/api/scores", async (ILeaderboardService board, int? top, string? period, CancellationToken ct) =>
+        {
+            LeaderboardPeriod scope = string.Equals(period, "today", StringComparison.OrdinalIgnoreCase)
+                ? LeaderboardPeriod.Today : LeaderboardPeriod.AllTime;
+            IReadOnlyList<Models.ScoreEntry> entries = await board.GetTopAsync(top ?? 0, scope, ct);
+            return Results.Ok(entries.Select(ScoreDto.From));
+        });
+
+        app.MapPost("/api/scores", async (ILeaderboardService board, IRunTokenService tokens, Microsoft.Extensions.Options.IOptions<LeaderboardOptions> lbOptions, HttpContext http, ScoreSubmission body, CancellationToken ct) =>
+        {
+            if (body is null)
+            {
+                return Results.BadRequest(new { error = "Missing body." });
+            }
+            if (lbOptions.Value.RequireRunToken)
+            {
+                (bool ok, string? reason) = tokens.Validate(body.Token, body.Score);
+                if (!ok)
+                {
+                    Logs.Warning($"Score submit rejected by run-token check: {reason} (score={body.Score}).");
+                    return Results.BadRequest(new { error = "Score rejected." });
+                }
+            }
+            // Per-client key for the cooldown: prefer the real client IP, fall back to connection id.
+            string clientKey = http.Connection.RemoteIpAddress?.ToString() ?? http.Connection.Id;
+            ScoreSubmissionResult? result = await board.SubmitScoreAsync(body.Initials ?? "", body.Score, clientKey, ct);
+            if (result is null)
+            {
+                return Results.BadRequest(new { error = "Score rejected." });
+            }
+            IReadOnlyList<Models.ScoreEntry> topEntries = await board.GetTopAsync(0, LeaderboardPeriod.AllTime, ct);
+            return Results.Ok(new
+            {
+                rank = result.Rank,
+                entry = ScoreDto.From(result.Entry),
+                top = topEntries.Select(ScoreDto.From)
+            });
+        });
 
         Console.CancelKeyPress += (_, e) =>
         {

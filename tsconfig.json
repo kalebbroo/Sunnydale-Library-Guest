@@ -1,0 +1,24 @@
+{
+  // Compiles the Stake Night game from Scripts/*.ts to wwwroot/js/*.js.
+  // Runs automatically during `dotnet build` (see the CompileGameTypeScript target in
+  // SunnydaleLibrary.csproj). ES2019 target so tsc downlevels optional-chaining / nullish
+  // for older iOS captive webviews. Emits a plain IIFE — no module loader, no bundler.
+  "compilerOptions": {
+    "target": "ES2019",
+    "lib": ["ES2019", "DOM", "DOM.Iterable"],
+    // The game has no import/export (single global IIFE), so the module system is irrelevant
+    // to emit. Use a current value — "none" is deprecated and removed in TS 7.0.
+    "module": "ESNext",
+    "strict": true,
+    "noEmitOnError": false,
+    "removeComments": false,
+    "sourceMap": false,
+    "incremental": true,
+    "tsBuildInfoFile": "obj/tsbuild/game.tsbuildinfo",
+    "outDir": "wwwroot/js",
+    "rootDir": "Scripts",
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["Scripts/**/*.ts"]
+}

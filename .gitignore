@@ -18,6 +18,15 @@ bin/
 /logs/
 *.log
 
+# Local SQLite leaderboard
+/data/
+
+# Node / TypeScript build
+/node_modules/
+*.tsbuildinfo
+# wwwroot/js/game.js is committed on purpose: it's the tsc output, kept so the app still
+# runs on a host without Node. `dotnet build` regenerates it when Node is present.
+
 # IDE
 /.idea/
 /.vscode/

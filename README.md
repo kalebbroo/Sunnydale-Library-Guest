@@ -5,6 +5,12 @@ Sunnydale High School library card-catalog sign-in page (Buffy bit). Guests sign
 register; the app authorizes their MAC against the UDM SE controller for a configurable
 window, then redirects them to whatever URL they were originally trying to reach.
 
+Hidden in the portal is **Stake Night** — a canvas side-scroller where you play Buffy
+staking vampires for a high score, with a shared leaderboard so everyone on the guest
+network can compete to be the top patron. The board is disguised on the sign-in page as a
+"Frequently Checked Out" circulation card, and a subtle stake in the footer (plus the card
+itself) links into the game at `/Game`. The game is playable without signing in.
+
 ## How the captive flow works
 
 ```
@@ -25,9 +31,53 @@ POST → /Success → IUnifiClient.AuthorizeGuestAsync(mac, ap, minutes)
 ## Stack
 
 - .NET 9 / ASP.NET Core Razor Pages
-- Docker (multi-stage build, runs as non-root)
+- SQLite (`Microsoft.Data.Sqlite`, ADO.NET — no EF) for the leaderboard
+- HTML5 Canvas game written in **TypeScript** (`Scripts/game.ts`), compiled to a single
+  plain-IIFE `wwwroot/js/game.js` by `tsc` during `dotnet build`
+- Docker (multi-stage build, runs as non-root; build stage installs Node for `tsc`)
 - Custom `Logs` class — no `ILogger<T>`
-- Mobile-first CSS, works on the iOS captive WebKit view without JS
+- Mobile-first CSS; the sign-in flow works on the iOS captive WebKit view without JS
+  (the game itself needs JS, as expected)
+
+## Client build (TypeScript)
+
+The game's source of truth is **`Scripts/game.ts`**. It compiles to `wwwroot/js/game.js`
+(ES2019, so `tsc` downlevels optional-chaining / nullish for older iOS captive webviews).
+
+- **Automatic:** a `CompileGameTypeScript` MSBuild target in `SunnydaleLibrary.csproj` runs
+  `npm install` (first time) + `tsc` on every `dotnet build`. Needs **Node.js** on PATH.
+- **Resilient:** if Node isn't installed, the target logs a warning (`MSB3073 … npm: not
+  found`) and the build still succeeds, falling back to the **committed** `wwwroot/js/game.js`.
+  That compiled file is checked in on purpose so the app runs on Node-less hosts; `dotnet
+  build` regenerates it wherever Node is present (including the Docker image).
+- **Manual / watch:** `npm install` then `npm run build` (one-shot) or `npm run watch`.
+- Edit the game in `Scripts/game.ts`, not the generated `wwwroot/js/game.js`.
+
+## The game & leaderboard
+
+- **`/Game`** — Stake Night, a side-scrolling platformer. Run and jump through an endless
+  graveyard (on-screen touch pads; ←→/Space/J on desktop), staking four vampire types,
+  grabbing power-ups (heart / crossbow / holy water), and surviving the mini-boss (The
+  Master) at score milestones. Three lives, combo multiplier, difficulty ramps with time.
+  On game over you enter arcade-style initials (AAA) and your score posts to the board.
+- The board has **All-Time** and **Tonight** (today, UTC) views — game-over screen has tabs,
+  and the splash shows "tonight's top slayer."
+- **Leaderboard API** (public read, guarded write; consumed by `wwwroot/js/game.js`):
+  - `POST /api/run/start` → `{ token }` — a signed run token, requested when a game begins.
+  - `GET /api/scores?top=10&period=today|all` → top-N scores as JSON (defaults to all-time).
+  - `POST /api/scores` `{ "initials": "BTV", "score": 4820, "token": "…" }` → persists and
+    returns `{ rank, entry, top }`.
+- Scores live in SQLite on the `app_data` Docker volume, so they survive restarts.
+- **Anti-cheat (run tokens).** A score submit must carry a valid, signed, single-use run
+  token (HMAC, issued at game start). The server rejects submissions that are tokenless,
+  replayed, stale, too fast (`MinPlaySeconds`), or implausibly high for the elapsed play time
+  (`PointsPerSecondCap`). This stops the trivial "`curl` a million points" attack the v1 board
+  was open to. It's not bulletproof (a determined player can drive a slow real session and
+  submit a capped score), but it makes the board meaningfully trustworthy. Set
+  `Leaderboard:RequireRunToken=false` to disable. The signing key comes from
+  `LEADERBOARD_SIGNING_KEY`; if unset, an ephemeral per-process key is generated (tokens
+  reset on restart — fine, since tokens are short-lived).
+- Other dampening: initials charset, score clamp to `MaxScore`, per-client submit cooldown.
 
 ## Port
 
@@ -81,10 +131,16 @@ override `appsettings.json` defaults.
 | `UNIFI_SITE` | Usually `default` |
 | `UNIFI_DEFAULT_MINUTES` | How long to authorize each guest (e.g. `480` = 8h) |
 | `UNIFI_VERIFY_TLS` | `false` for the UDM's self-signed cert |
+| `LEADERBOARD_DATABASE_PATH` | SQLite file path. Blank → `/app/data/leaderboard.db` (Docker) or `./data/leaderboard.db` (local) |
+| `LEADERBOARD_TOP_COUNT` | Rows shown on the public board (default `10`) |
+| `LEADERBOARD_MAX_SCORE` | Reject submissions above this as implausible (default `1000000`) |
+| `LEADERBOARD_SUBMIT_COOLDOWN_SECONDS` | Min seconds between accepted submits per client (default `3`) |
+| `LEADERBOARD_REQUIRE_RUN_TOKEN` | Require a signed run token on submit (default `true`) |
+| `LEADERBOARD_SIGNING_KEY` | HMAC key for run tokens; blank → ephemeral per-process key |
+| `LEADERBOARD_POINTS_PER_SECOND_CAP` | Max plausible points earned per played second (default `3000`) |
 
-## Easter eggs (scaffolded, not implemented)
+## Surface gags (zero-cost theming)
 
-`IEasterEggService` is registered in DI with a no-op implementation. TODO markers
-throughout the code (`easter-egg-tier1` / `tier2` / `tier3`) flag where the rabbit-hole
-content slots in later. The splash already has a few zero-cost surface gags baked in
-(struck-through evening hours, "Slaying-Related" reason option, 1999 footer).
+The splash keeps a few in-character touches: struck-through evening library hours, a
+"Slaying-Related" reason option, the © 1999 footer, and the disguised circulation-card
+leaderboard.

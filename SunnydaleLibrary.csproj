@@ -18,6 +18,31 @@
   <ItemGroup>
     <PackageReference Include="dotenv.net" Version="4.0.0" />
     <PackageReference Include="FreneticLLC.FreneticUtilities" Version="1.1.4" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
   </ItemGroup>
+
+  <!-- Keep the TS source and build config out of the publish output / static web assets. -->
+  <ItemGroup>
+    <Content Remove="Scripts/**/*.ts;tsconfig.json;package.json;package-lock.json" />
+    <None Include="Scripts/**/*.ts;tsconfig.json;package.json" />
+  </ItemGroup>
+
+  <!--
+    Compile the Stake Night game (Scripts/*.ts -> wwwroot/js/*.js) during the .NET build.
+    Resilient by design: ContinueOnError means a missing Node/npm toolchain (e.g. a bare CI
+    runner, or a dev box without Node) logs a warning and falls back to the committed
+    wwwroot/js/game.js rather than failing the build. The Docker build stage installs Node
+    so the image always recompiles from source. Runs before static web assets are gathered.
+  -->
+  <Target Name="CompileGameTypeScript" BeforeTargets="BeforeBuild">
+    <Message Importance="high" Text="[Stake Night] Compiling TypeScript (Scripts/game.ts -> wwwroot/js/game.js)..." />
+    <Exec Command="npm install --no-audit --no-fund --silent"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          Condition="!Exists('$(MSBuildProjectDirectory)/node_modules')"
+          ContinueOnError="true" />
+    <Exec Command="npx --no-install tsc -p tsconfig.json"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ContinueOnError="true" />
+  </Target>
 
 </Project>

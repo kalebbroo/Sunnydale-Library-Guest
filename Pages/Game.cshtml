@@ -1,0 +1,96 @@
+@page
+@model GameModel
+@{
+    ViewData["Title"] = "Stake Night — Sunnydale After Dark";
+    Layout = null;
+}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0a14" />
+    <meta name="referrer" content="no-referrer" />
+    <title>@ViewData["Title"]</title>
+    <link rel="stylesheet" href="~/css/game.css" asp-append-version="true" />
+</head>
+<body class="stakenight">
+    <div id="game-root">
+        <canvas id="game-canvas"></canvas>
+
+        @* Persistent sound toggle (also unlocks the AudioContext on first tap) *@
+        <button id="btn-mute" class="mute-btn" type="button" aria-label="Toggle sound">&#128266;</button>
+
+        @* Heads-up display, drawn over the canvas *@
+        <div id="hud" class="hud" aria-hidden="true">
+            <span id="hud-score" class="hud-score">0</span>
+            <span id="hud-combo" class="hud-combo"></span>
+            <span id="hud-power" class="hud-power"></span>
+            <span id="hud-lives" class="hud-lives">&#10084;&#10084;&#10084;</span>
+        </div>
+
+        @* Boss health bar — shown only while The Master is on screen *@
+        <div id="boss-bar" class="boss-bar hidden" aria-hidden="true">
+            <span class="boss-name">The Master</span>
+            <div class="boss-hp"><i id="boss-hp-fill"></i></div>
+        </div>
+
+        @* On-screen touch controls (also clickable on desktop). Shown only during play. *@
+        <div id="controls" class="controls hidden" aria-hidden="true">
+            <div class="pad pad-left">
+                <button id="btn-left" class="ctl" type="button" aria-label="Move left">&#9664;</button>
+                <button id="btn-right" class="ctl" type="button" aria-label="Move right">&#9654;</button>
+            </div>
+            <div class="pad pad-right">
+                <button id="btn-jump" class="ctl ctl-wide" type="button" aria-label="Jump">JUMP</button>
+                <button id="btn-stake" class="ctl ctl-wide ctl-primary" type="button" aria-label="Stake">STAKE</button>
+            </div>
+        </div>
+
+        @* Start overlay *@
+        <div id="overlay-start" class="overlay">
+            <div class="panel">
+                <h1>Stake Night</h1>
+                <p class="tag">Sunnydale, after the library closes.</p>
+                <p class="how">Run &amp; jump through the graveyard. <strong>Stake</strong> the vamps, grab power-ups, survive the Master.</p>
+                <p class="how keys">On-screen pads on touch &middot; <kbd>&larr;</kbd><kbd>&rarr;</kbd> move, <kbd>Space</kbd> jump, <kbd>J</kbd> stake on desktop.</p>
+                <button id="btn-start" type="button" class="arcade-btn">Begin Patrol</button>
+                <a class="back-link" href="/">&larr; Back to the library</a>
+            </div>
+        </div>
+
+        @* Game-over overlay: initials entry + leaderboard *@
+        <div id="overlay-over" class="overlay hidden">
+            <div class="panel">
+                <h2>Dawn Breaks</h2>
+                <p class="final">Score <span id="final-score">0</span></p>
+
+                <div id="entry-block">
+                    <p class="enter-label">Enter your initials</p>
+                    <div id="initials" class="initials" role="group" aria-label="Initials">
+                        <button type="button" class="char" data-i="0">A</button>
+                        <button type="button" class="char" data-i="1">A</button>
+                        <button type="button" class="char" data-i="2">A</button>
+                    </div>
+                    <p class="initials-hint">Tap a letter to cycle it.</p>
+                    <button id="btn-submit" type="button" class="arcade-btn">Carve It In</button>
+                </div>
+
+                <div id="board-block" class="hidden">
+                    <h3>The Watcher&rsquo;s Tally</h3>
+                    <div class="board-tabs" role="tablist">
+                        <button id="tab-all" type="button" class="board-tab active">All-Time</button>
+                        <button id="tab-today" type="button" class="board-tab">Tonight</button>
+                    </div>
+                    <ol id="board-list" class="board"></ol>
+                    <div class="over-actions">
+                        <button id="btn-again" type="button" class="arcade-btn">Patrol Again</button>
+                        <a class="back-link" href="/">&larr; Back to the library</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="~/js/game.js" asp-append-version="true"></script>
+</body>
+</html>

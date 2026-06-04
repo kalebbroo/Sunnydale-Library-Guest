@@ -16,7 +16,9 @@ services:
       - "80:8080"
     volumes:
       - app_logs:/app/logs
+      - app_data:/app/data
     restart: unless-stopped
 
 volumes:
   app_logs:
+  app_data:

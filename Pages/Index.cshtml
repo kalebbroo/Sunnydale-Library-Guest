@@ -10,7 +10,6 @@
         <p class="motto">"Knowledge is the highest good."</p>
     </header>
 
-    @* TODO(easter-egg-tier1): the "Hours" block has the evening line crossed out — already baked in below. *@
     <aside class="hours" aria-label="Library hours">
         <strong>Hours</strong>
         <ul>
@@ -19,6 +18,29 @@
             <li>Sat &ndash; Sun &nbsp; Closed</li>
         </ul>
     </aside>
+
+    @* Hidden in plain sight: this "circulation card" is the Stake Night leaderboard.
+       Reads as borrow counts to a casual guest; the whole card links into the game. *@
+    <a class="circulation" href="/Game" aria-label="Frequently checked out">
+        <strong>Frequently Checked Out</strong>
+        @if (Model.TopScores.Count == 0)
+        {
+            <p class="empty">No recent activity on record.</p>
+        }
+        else
+        {
+            <ol>
+                @foreach (var entry in Model.TopScores)
+                {
+                    <li><span class="who">@entry.Initials</span><span class="count">@entry.Score.ToString("N0")</span></li>
+                }
+            </ol>
+        }
+        @if (Model.TonightsTop is not null)
+        {
+            <p class="tonight">Tonight&rsquo;s top slayer: <span class="who">@Model.TonightsTop.Initials</span> &middot; @Model.TonightsTop.Score.ToString("N0")</p>
+        }
+    </a>
 
     @if (!string.IsNullOrEmpty(Model.ErrorMessage))
     {
@@ -58,7 +80,7 @@
 
     <footer class="card-footer">
         <span>&copy; 1999 Sunnydale High School Library</span>
-        @* TODO(easter-egg-tier2): card catalog floats on hover from the corner *@
-        @* TODO(easter-egg-tier3): footer year click triggers Watcher's journal modal *@
+        @* Easy-but-not-obvious way in: a small stake tucked in the footer links to the game. *@
+        <a class="stake" href="/Game" aria-label="After hours" title="After hours">&#10072;&#9650;</a>
     </footer>
 </section>
