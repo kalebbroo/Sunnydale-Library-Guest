@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using SunnydaleLibrary.Models;
 using SunnydaleLibrary.Services;
+using SunnydaleLibrary.Utils;
 
 namespace SunnydaleLibrary.Pages;
 
@@ -25,9 +26,19 @@ public class IndexModel(ILeaderboardService leaderboard) : PageModel
         {
             ErrorMessage = errorText;
         }
-        // Show a short all-time board; the full game/board lives behind the stake link to /Game.
-        TopScores = await Leaderboard.GetTopAsync(5, LeaderboardPeriod.AllTime, ct);
-        IReadOnlyList<ScoreEntry> today = await Leaderboard.GetTopAsync(1, LeaderboardPeriod.Today, ct);
-        TonightsTop = today.Count > 0 ? today[0] : null;
+        // The leaderboard is a nicety — never let it block the captive sign-in. If the DB is
+        // locked/unavailable, render an empty board and keep the register working.
+        try
+        {
+            TopScores = await Leaderboard.GetTopAsync(5, LeaderboardPeriod.AllTime, ct);
+            IReadOnlyList<ScoreEntry> today = await Leaderboard.GetTopAsync(1, LeaderboardPeriod.Today, ct);
+            TonightsTop = today.Count > 0 ? today[0] : null;
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"Leaderboard unavailable on splash (sign-in unaffected): {ex.Message}");
+            TopScores = [];
+            TonightsTop = null;
+        }
     }
 }

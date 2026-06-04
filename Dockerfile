@@ -10,11 +10,18 @@ WORKDIR /app
 EXPOSE 8080
 
 USER root
+# curl is used by the container HEALTHCHECK to probe /healthz.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /app/logs /app/data && \
     chown -R app:app /app && \
     chmod 755 /app && \
     chmod 777 /app/logs /app/data
 USER app
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:8080/healthz || exit 1
 
 # =================
 # Build

@@ -60,10 +60,29 @@ html, body {
     pointer-events: none;
 }
 
-.hud-score { font-weight: bold; color: var(--gold); min-width: 3ch; }
+.hud-portrait {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: var(--gold);
+    background: #1a1426;
+    border: 2px solid var(--gold);
+    border-radius: 6px;
+    /* A real portrait can drop in later: background-image: url(/img/portrait_buffy.png) */
+}
+
+.hud-stats { display: flex; flex-direction: column; gap: 2px; line-height: 1.1; }
+.hud-name { font-size: 0.72rem; letter-spacing: 0.12em; color: var(--muted); }
+.hud-lives { color: #6ad06a; font-size: 1.1rem; letter-spacing: 1px; }
+
+.hud-score { font-weight: bold; color: var(--gold); margin-left: auto; font-variant-numeric: tabular-nums; }
 .hud-combo { color: #ff7b7b; font-style: italic; }
 .hud-power { color: #bfe3ff; font-size: 1rem; }
-.hud-lives { color: var(--blood); letter-spacing: 2px; margin-left: auto; }
 
 /* ---- Boss health bar ---- */
 .boss-bar {
@@ -120,6 +139,19 @@ html, body {
     display: flex;
     gap: 12px;
 }
+
+/* 4-way D-pad laid out as a cross (corners left empty). */
+.controls .dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(3, 56px);
+    gap: 6px;
+}
+.controls .dpad .ctl { width: 56px; height: 56px; font-size: 1.2rem; }
+.dpad-up { grid-column: 2; grid-row: 1; }
+.dpad-left { grid-column: 1; grid-row: 2; }
+.dpad-right { grid-column: 3; grid-row: 2; }
+.dpad-down { grid-column: 2; grid-row: 3; }
 
 .controls .ctl {
     pointer-events: auto;

@@ -13,6 +13,8 @@
     <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
     <RootNamespace>SunnydaleLibrary</RootNamespace>
     <AssemblyName>SunnydaleLibrary</AssemblyName>
+    <!-- Keep the test project (and its bin/obj) out of this project's default file globs. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

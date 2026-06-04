@@ -14,4 +14,7 @@ public class UnifiOptions
     public int DefaultMinutes { get; set; } = 480;
 
     public bool VerifyTls { get; set; } = false;
+
+    /// <summary>HTTP timeout for controller calls. Keeps a slow/unreachable UDM from hanging sign-in.</summary>
+    public int RequestTimeoutSeconds { get; set; } = 10;
 }

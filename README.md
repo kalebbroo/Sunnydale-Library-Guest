@@ -131,6 +131,7 @@ override `appsettings.json` defaults.
 | `UNIFI_SITE` | Usually `default` |
 | `UNIFI_DEFAULT_MINUTES` | How long to authorize each guest (e.g. `480` = 8h) |
 | `UNIFI_VERIFY_TLS` | `false` for the UDM's self-signed cert |
+| `UNIFI_TIMEOUT_SECONDS` | HTTP timeout for controller calls (default `10`); keeps a slow/down UDM from hanging sign-in |
 | `LEADERBOARD_DATABASE_PATH` | SQLite file path. Blank → `/app/data/leaderboard.db` (Docker) or `./data/leaderboard.db` (local) |
 | `LEADERBOARD_TOP_COUNT` | Rows shown on the public board (default `10`) |
 | `LEADERBOARD_MAX_SCORE` | Reject submissions above this as implausible (default `1000000`) |
@@ -138,6 +139,22 @@ override `appsettings.json` defaults.
 | `LEADERBOARD_REQUIRE_RUN_TOKEN` | Require a signed run token on submit (default `true`) |
 | `LEADERBOARD_SIGNING_KEY` | HMAC key for run tokens; blank → ephemeral per-process key |
 | `LEADERBOARD_POINTS_PER_SECOND_CAP` | Max plausible points earned per played second (default `3000`) |
+
+## Operations & hardening
+
+- **Health check:** `GET /healthz` returns `200 Healthy` (liveness only — it does *not* depend on the
+  DB, so a leaderboard outage won't get the container killed). The Dockerfile declares a
+  `HEALTHCHECK` that curls it every 30s, so `restart: unless-stopped` recovers a wedged container.
+- **Sign-in is decoupled from the game.** The splash loads the leaderboard inside a `try/catch`
+  ([Index.cshtml.cs](Pages/Index.cshtml.cs)); if SQLite is locked/unavailable the board renders empty
+  and guests can still sign in. A game/DB problem never blocks WiFi access.
+- **Fail-fast UniFi calls.** Controller requests use `UNIFI_TIMEOUT_SECONDS` (default 10s) instead of
+  the 100s default, so a slow/down UDM surfaces the "wards refused entry" message quickly.
+- **Rate limiting** (per client IP, built-in `AddRateLimiter`): a 120/min global safety net on dynamic
+  requests (static files bypass it), `POST /Success` capped at 15/min (each one logs into the UDM),
+  and the `/api/*` score endpoints at 40/min. Over-limit requests get `429`.
+- **Run-token key:** set `LEADERBOARD_SIGNING_KEY` in production so a restart doesn't invalidate
+  in-flight game tokens (otherwise an ephemeral key is generated per process).
 
 ## Surface gags (zero-cost theming)
 

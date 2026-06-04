@@ -1,9 +1,11 @@
 using dotenv.net;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Options;
 using SunnydaleLibrary.Models;
 using SunnydaleLibrary.Services;
 using SunnydaleLibrary.Utils;
 using System.Net;
+using System.Threading.RateLimiting;
 
 namespace SunnydaleLibrary;
 
@@ -11,6 +13,9 @@ public class Program
 {
     private static readonly CancellationTokenSource GlobalCancelSource = new();
     public static CancellationToken GlobalProgramCancel = GlobalCancelSource.Token;
+
+    /// <summary>Rate-limit partition key: the client's IP (falls back to a shared bucket).</summary>
+    private static string ClientKey(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     public static void Main(string[] args)
     {
@@ -64,13 +69,23 @@ public class Program
             if (int.TryParse(minutes, out int parsedMinutes) && parsedMinutes > 0) { opts.DefaultMinutes = parsedMinutes; }
             string? verifyTls = Environment.GetEnvironmentVariable("UNIFI_VERIFY_TLS");
             if (bool.TryParse(verifyTls, out bool parsedVerifyTls)) { opts.VerifyTls = parsedVerifyTls; }
+            string? timeout = Environment.GetEnvironmentVariable("UNIFI_TIMEOUT_SECONDS");
+            if (int.TryParse(timeout, out int parsedTimeout) && parsedTimeout > 0) { opts.RequestTimeoutSeconds = parsedTimeout; }
         });
 
         Logs.Init("Registering UniFi HTTP client...");
         builder.Services.AddHttpClient<IUnifiClient, UnifiClient>()
+            .ConfigureHttpClient((sp, client) =>
+            {
+                UnifiOptions opts = sp.GetRequiredService<IOptions<UnifiOptions>>().Value;
+                if (opts.RequestTimeoutSeconds > 0)
+                {
+                    client.Timeout = TimeSpan.FromSeconds(opts.RequestTimeoutSeconds);
+                }
+            })
             .ConfigurePrimaryHttpMessageHandler(sp =>
             {
-                UnifiOptions opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<UnifiOptions>>().Value;
+                UnifiOptions opts = sp.GetRequiredService<IOptions<UnifiOptions>>().Value;
                 HttpClientHandler handler = new()
                 {
                     UseCookies = true,
@@ -110,6 +125,38 @@ public class Program
         builder.Services.AddSingleton<IRunTokenService, RunTokenService>();
         builder.Services.AddScoped<IGuestSessionService, GuestSessionService>();
 
+        Logs.Init("Configuring health checks and rate limiting...");
+        builder.Services.AddHealthChecks();
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            // Safety-net cap on dynamic requests per client IP (static files bypass this — they're
+            // served before the limiter runs). Partition by the real client address.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
+                RateLimitPartition.GetFixedWindowLimiter(ClientKey(http), _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 120,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                }));
+            // Stricter limit for the sign-in POST — each one triggers a real UniFi controller login.
+            options.AddPolicy("signin", http =>
+                RateLimitPartition.GetFixedWindowLimiter(ClientKey(http), _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 15,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                }));
+            // Limit for the public score API (read + guarded write).
+            options.AddPolicy("api", http =>
+                RateLimitPartition.GetFixedWindowLimiter(ClientKey(http), _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 40,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                }));
+        });
+
         WebApplication app = builder.Build();
 
         Logs.Init("Ensuring leaderboard schema...");
@@ -136,12 +183,16 @@ public class Program
 
         app.UseStaticFiles();
         app.UseRouting();
+        app.UseRateLimiter();
+
         app.MapRazorPages();
+        app.MapHealthChecks("/healthz");
 
         // --- Stake Night leaderboard API (public read, guarded write; consumed by wwwroot/js/game.js) ---
 
         // Issue a signed run token at the start of a play session (anti-cheat; see RunTokenService).
-        app.MapPost("/api/run/start", (IRunTokenService tokens) => Results.Ok(new { token = tokens.Issue() }));
+        app.MapPost("/api/run/start", (IRunTokenService tokens) => Results.Ok(new { token = tokens.Issue() }))
+            .RequireRateLimiting("api");
 
         app.MapGet("/api/scores", async (ILeaderboardService board, int? top, string? period, CancellationToken ct) =>
         {
@@ -149,7 +200,7 @@ public class Program
                 ? LeaderboardPeriod.Today : LeaderboardPeriod.AllTime;
             IReadOnlyList<Models.ScoreEntry> entries = await board.GetTopAsync(top ?? 0, scope, ct);
             return Results.Ok(entries.Select(ScoreDto.From));
-        });
+        }).RequireRateLimiting("api");
 
         app.MapPost("/api/scores", async (ILeaderboardService board, IRunTokenService tokens, Microsoft.Extensions.Options.IOptions<LeaderboardOptions> lbOptions, HttpContext http, ScoreSubmission body, CancellationToken ct) =>
         {
@@ -180,7 +231,7 @@ public class Program
                 entry = ScoreDto.From(result.Entry),
                 top = topEntries.Select(ScoreDto.From)
             });
-        });
+        }).RequireRateLimiting("api");
 
         Console.CancelKeyPress += (_, e) =>
         {

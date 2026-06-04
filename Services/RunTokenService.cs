@@ -34,6 +34,9 @@ public class RunTokenService : IRunTokenService
 {
     public LeaderboardOptions Options { get; }
 
+    /// <summary>Time source, overridable in tests for deterministic age/elapsed checks.</summary>
+    public Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
+
     private readonly byte[] _key;
 
     /// <summary>nonce -> expiry tick (Environment.TickCount64). Presence means "already spent".</summary>
@@ -57,7 +60,7 @@ public class RunTokenService : IRunTokenService
     public string Issue()
     {
         // Payload: issue time (unix ms) + random nonce. Compact JSON keeps the token small.
-        long issuedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long issuedAt = Clock().ToUnixTimeMilliseconds();
         string nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
         string payloadJson = JsonSerializer.Serialize(new TokenPayload { T = issuedAt, N = nonce });
         byte[] payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
@@ -108,7 +111,7 @@ public class RunTokenService : IRunTokenService
             return (false, "bad payload");
         }
 
-        long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long nowMs = Clock().ToUnixTimeMilliseconds();
         double elapsedSec = (nowMs - payload.T) / 1000.0;
         if (elapsedSec < -5)
         {

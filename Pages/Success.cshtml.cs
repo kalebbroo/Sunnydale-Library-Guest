@@ -1,11 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.RateLimiting;
 using SunnydaleLibrary.Models;
 using SunnydaleLibrary.Services;
 using SunnydaleLibrary.Utils;
 
 namespace SunnydaleLibrary.Pages;
 
+// Each POST here triggers a real UniFi controller login — throttle per client IP.
+[EnableRateLimiting("signin")]
 public class SuccessModel(IGuestSessionService sessions) : PageModel
 {
     public IGuestSessionService Sessions { get; } = sessions;
