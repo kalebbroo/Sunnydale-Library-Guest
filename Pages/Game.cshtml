@@ -27,6 +27,7 @@
                 <span class="hud-name">BUFFY</span>
                 <span id="hud-lives" class="hud-lives">&#9646;&#9646;&#9646;&#9647;&#9647;</span>
             </div>
+            <span id="hud-stage" class="hud-stage"></span>
             <span id="hud-combo" class="hud-combo"></span>
             <span id="hud-power" class="hud-power"></span>
             <span id="hud-score" class="hud-score">000000</span>
@@ -34,7 +35,7 @@
 
         @* Boss health bar — shown only while The Master is on screen *@
         <div id="boss-bar" class="boss-bar hidden" aria-hidden="true">
-            <span class="boss-name">The Master</span>
+            <span id="boss-name" class="boss-name">The Master</span>
             <div class="boss-hp"><i id="boss-hp-fill"></i></div>
         </div>
 
@@ -48,6 +49,7 @@
                 <button id="btn-down" class="ctl dpad-down" type="button" aria-label="Move down">&#9660;</button>
             </div>
             <div class="pad pad-right">
+                <button id="btn-throw" class="ctl ctl-wide hidden" type="button" aria-label="Throw stake">THROW</button>
                 <button id="btn-jump" class="ctl ctl-wide" type="button" aria-label="Jump">JUMP</button>
                 <button id="btn-attack" class="ctl ctl-wide ctl-primary" type="button" aria-label="Attack">HIT</button>
             </div>
@@ -65,10 +67,19 @@
             </div>
         </div>
 
+        @* Story card shown between stages *@
+        <div id="overlay-story" class="overlay hidden">
+            <div class="panel">
+                <h2 id="story-title">Stage</h2>
+                <p id="story-text" class="story-text"></p>
+                <button id="btn-story-continue" type="button" class="arcade-btn">Continue &rarr;</button>
+            </div>
+        </div>
+
         @* Game-over overlay: initials entry + leaderboard *@
         <div id="overlay-over" class="overlay hidden">
             <div class="panel">
-                <h2>Dawn Breaks</h2>
+                <h2 id="over-title">Dawn Breaks</h2>
                 <p class="final">Score <span id="final-score">0</span></p>
 
                 <div id="entry-block">

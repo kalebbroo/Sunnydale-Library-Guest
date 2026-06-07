@@ -1,67 +1,53 @@
 "use strict";
 /*
  * Stake Night — a canvas BEAT-'EM-UP for the Sunnydale guest portal (TMNT/Streets-of-Rage
- * style: walk around a 2.5D floor with depth, combo the vampires that swarm you).
+ * style): walk a 2.5D floor with depth, combo the vampires that swarm you, clear each scene,
+ * follow the EXIT east through a short story, and finish on The Master.
  *
- * TypeScript source, compiled to wwwroot/js/game.js by tsc (see tsconfig.json) during
- * `dotnet build`. No runtime deps; emits a plain IIFE so it loads in the iOS captive webview.
+ * TypeScript source, compiled to wwwroot/js/game.js by tsc during `dotnet build`.
  *
- * Coordinate model (classic beat-'em-up):
- *   x = world horizontal, z = depth on the floor (0 = far/top, FLOOR_DEPTH = near/bottom),
- *   y = jump height above the ground. Screen position:
- *     screenX = x - camX
- *     screenY = floorTopY + z - y     (bigger z draws lower/in-front; y lifts for jumps)
+ * Coordinates: x = world horizontal, z = floor depth (0 far/top … FLOOR_DEPTH near/bottom),
+ * y = jump height. screenX = x - camX; screenY = floorTopY + z - y.
  *
- * Art: every actor draws through drawActor(), which uses a sprite sheet if one is loaded and
- * otherwise falls back to procedural shapes. There is no art yet, so it runs entirely on the
- * fallback — drop sheets into wwwroot/img per SPRITES.md and they light up automatically.
- *
+ * Art: drawActor() uses a sprite sheet if loaded (see SPRITES.md), else procedural shapes.
  * Talks to /api/run/start (anti-cheat token) and /api/scores (leaderboard).
  */
 (function () {
     "use strict";
+    var _a;
     // ---- Tunables ---------------------------------------------------------
     const CONFIG = {
-        floorTopFrac: 0.56, // far edge of the walkable floor (fraction of viewH)
-        floorDepthFrac: 0.34, // floor band height
-        camLerp: 7,
-        moveSpeed: 250, // px/s
-        depthScale: 0.62, // vertical (z) movement is slower for perspective
-        gravity: 2600,
-        jumpVel: 720,
-        coyoteMs: 90,
-        jumpBufferMs: 120,
-        attackCooldownMs: 300,
-        attackMs: 160,
-        attackReachX: 66, // forward reach from body center
-        attackBandZ: 28, // depth tolerance to land a hit
-        iframesMs: 1100,
-        startLives: 3,
-        maxLives: 5,
-        baseKillPoints: 120,
-        spawnStartMs: 1600,
-        spawnMinMs: 600,
-        spawnRampMs: 60000,
-        maxEnemies: 14,
-        cullDist: 1.7,
-        pickupEveryMs: 14000,
-        crossbowMs: 8000,
-        boltSpeed: 700,
-        holyRadius: 220,
-        bossFirstScore: 2500,
-        bossScoreStep: 4000,
-        bossSpeed: 95,
-        bossDashSpeed: 430,
-        scytheMs: 9000,
-        scytheReachMult: 1.8,
+        floorTopFrac: 0.56, floorDepthFrac: 0.34, camLerp: 7,
+        moveSpeed: 250, depthScale: 0.62, gravity: 2600, jumpVel: 720, coyoteMs: 90, jumpBufferMs: 120,
+        attackCooldownMs: 300, attackMs: 160, attackReachX: 66, attackBandZ: 28, iframesMs: 1100,
+        startLives: 3, maxLives: 5, baseKillPoints: 120,
+        spawnStartMs: 1300, spawnMinMs: 550, spawnRampMs: 60000, maxEnemies: 12,
+        pickupEveryMs: 14000, crossbowMs: 8000, boltSpeed: 700, holyRadius: 220,
+        bossSpeed: 95, bossDashSpeed: 430,
+        scytheMs: 9000, scytheReachMult: 1.8,
+        throwCooldownMs: 600, throwSpeed: 760,
+        knockImpulse: 280, knockFriction: 6, stunMs: 240,
+        exitWalk: 440, // how far east to walk through an opened exit
     };
     const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    // Enemy archetypes for the beat-'em-up: ground vampires that swarm you in 2D.
     const ENEMY_TYPES = {
         grunt: { hp: 2, w: 30, h: 62, speed: 80, points: 120, color: "#1c1430", weight: () => 1.0 },
         runner: { hp: 1, w: 26, h: 56, speed: 150, points: 160, color: "#3a1330", weight: t => Math.max(0, t - 0.1) * 1.3 },
         brute: { hp: 4, w: 46, h: 78, speed: 55, points: 380, color: "#0f1a14", weight: t => Math.max(0, t - 0.25) * 0.9 },
     };
+    const STAGES = [
+        { name: "Restfield Cemetery", quota: 6, palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
+            story: "Patrol's on. The dead don't rest in Sunnydale — clear the fledglings prowling Restfield." },
+        { name: "The Crypt", quota: 8, palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
+            story: "Down into the crypt. Colder here, and something's been feeding well." },
+        { name: "Sunnydale High Halls", quota: 10, levelUp: true, palette: { sky0: "#14100a", sky1: "#2a2014", floor0: "#3a2f1f", floor1: "#1a140c", grave: "#241a10" },
+            story: "Back at school after dark. Giles stocked your locker — a brace of throwing stakes.\nLEVEL UP: press THROW (L) to hurl a stake!" },
+        { name: "The Library", quota: 12, palette: { sky0: "#0e0a14", sky1: "#241a30", floor0: "#2e2640", floor1: "#16101f", grave: "#1a1428" },
+            story: "The library sits right over the Hellmouth. They're pouring out. Hold the line." },
+        { name: "The Master's Lair", quota: 0, boss: true, palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
+            story: "The Master himself. This is what you were chosen for, Slayer. End it." },
+    ];
+    function stage() { return STAGES[Math.max(0, Math.min(state.stageIndex, STAGES.length - 1))]; }
     const ACTOR_ANIMS = {
         idle: { row: 0, frames: 4, fps: 6, loop: true },
         walk: { row: 1, frames: 6, fps: 12, loop: true },
@@ -75,7 +61,7 @@
         brute: { src: "/img/vamp_brute.png", fw: 64, fh: 80, scale: 1.0, anims: ACTOR_ANIMS },
         boss: { src: "/img/master.png", fw: 80, fh: 96, scale: 1.0, anims: ACTOR_ANIMS },
     };
-    // ---- Canvas / DPR setup ----------------------------------------------
+    // ---- Canvas -----------------------------------------------------------
     const canvas = document.getElementById("game-canvas");
     const ctx = canvas.getContext("2d");
     let viewW = 0, viewH = 0, dpr = 1;
@@ -88,7 +74,7 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         if (ctx) {
             ctx.imageSmoothingEnabled = false;
-        } // crisp pixels when sprites land
+        }
     }
     window.addEventListener("resize", resize);
     function floorTopY() { return viewH * CONFIG.floorTopFrac; }
@@ -96,7 +82,7 @@
     function sx(x) { return x - state.camX; }
     function groundY(z) { return floorTopY() + z; }
     function feetY(z, y) { return floorTopY() + z - y; }
-    // ---- Audio (Web Audio, fully synthesized — no asset files, no CDN) --------------------
+    // ---- Audio (Web Audio, synthesized — no asset files) ------------------
     const Sound = (function () {
         const ACtor = window.AudioContext
             || window.webkitAudioContext;
@@ -182,9 +168,12 @@
             pickup() { blip(520, 990, 0.14, "triangle", 0.30); },
             jump() { blip(300, 620, 0.10, "square", 0.16); },
             shoot() { blip(900, 300, 0.08, "square", 0.18); },
+            stage() { blip(440, 880, 0.25, "triangle", 0.22); },
+            levelup() { blip(523, 1046, 0.18, "square", 0.25); blip(784, 1568, 0.22, "square", 0.18); },
             bossIn() { blip(120, 55, 0.70, "sawtooth", 0.40); },
             bossDown() { burst(0.5, 0.5); blip(220, 40, 0.60, "sawtooth", 0.40); },
             over() { blip(440, 90, 0.60, "triangle", 0.30); },
+            win() { blip(523, 784, 0.18, "square", 0.22); blip(659, 988, 0.22, "square", 0.2); },
             ui() { blip(620, 620, 0.05, "square", 0.12); },
         };
         const BASS = [110.00, 110.00, 130.81, 146.83, 110.00, 98.00, 130.81, 164.81];
@@ -215,9 +204,8 @@
         function isMuted() { return muted; }
         return { resume, sfx, startMusic, stopMusic, toggleMute, isMuted };
     })();
-    // ---- Clock ------------------------------------------------------------
     let nowMs = 0;
-    // ---- Input (8-way + attack + jump) ------------------------------------
+    // ---- Input ------------------------------------------------------------
     const input = { left: false, right: false, up: false, down: false, jumpBufferedAt: -1e9 };
     const held = new Set();
     function pressJump() { input.jumpBufferedAt = nowMs; }
@@ -238,15 +226,16 @@
             tryAttack();
             e.preventDefault();
         }
-        else if (k === "k" || k === "l" || k === "shift") {
+        else if (k === "k" || k === "shift") {
             pressJump();
             e.preventDefault();
         }
+        else if (k === "l" || k === ";") {
+            tryThrow();
+            e.preventDefault();
+        }
     }
-    function keyUp(e) {
-        held.delete(e.key.toLowerCase());
-        syncDirs();
-    }
+    function keyUp(e) { held.delete(e.key.toLowerCase()); syncDirs(); }
     window.addEventListener("keydown", keyDown);
     window.addEventListener("keyup", keyUp);
     canvas.addEventListener("pointerdown", function (e) { e.preventDefault(); tryAttack(); }, { passive: false });
@@ -272,12 +261,13 @@
     bindHold(document.getElementById("btn-down"), v => { input.down = v; });
     bindTap(document.getElementById("btn-attack"), tryAttack);
     bindTap(document.getElementById("btn-jump"), pressJump);
+    bindTap(document.getElementById("btn-throw"), tryThrow);
     // ---- Sprite loader ----------------------------------------------------
     const sheets = {};
     function loadSheets() {
         if (typeof Image === "undefined") {
             return;
-        } // headless / no DOM image support
+        }
         for (const key of Object.keys(SHEETS)) {
             const def = SHEETS[key];
             const stt = { def, img: null, ready: false };
@@ -291,49 +281,44 @@
             sheets[key] = stt;
         }
     }
-    /// <summary>Draws a sprite frame if the sheet is loaded; returns false to signal "use fallback".</summary>
-    function drawSheet(kind, anim, animStart, feetScreenX, feetScreenY, facing) {
+    function drawSheet(kind, anim, animStart, fxp, fyp, facing) {
         const stt = sheets[kind];
         if (!stt || !stt.ready || !stt.img) {
             return false;
         }
         const def = stt.def;
         const a = def.anims[anim] || def.anims.idle;
-        const elapsed = (nowMs - animStart) / 1000;
-        let frame = Math.floor(elapsed * a.fps);
+        let frame = Math.floor(((nowMs - animStart) / 1000) * a.fps);
         frame = a.loop ? frame % a.frames : Math.min(frame, a.frames - 1);
         const w = def.fw * def.scale, h = def.fh * def.scale;
         ctx.save();
-        ctx.translate(feetScreenX, feetScreenY);
+        ctx.translate(fxp, fyp);
         ctx.scale(facing, 1);
-        ctx.drawImage(stt.img, a.row * 0 + frame * def.fw, a.row * def.fh, def.fw, def.fh, -w / 2, -h, w, h);
+        ctx.drawImage(stt.img, frame * def.fw, a.row * def.fh, def.fw, def.fh, -w / 2, -h, w, h);
         ctx.restore();
         return true;
     }
-    // ---- Game state -------------------------------------------------------
+    // ---- State ------------------------------------------------------------
     let state;
     let projHitId = -1;
     function freshPlayer() {
         return {
-            x: 0, z: floorDepth() * 0.5, y: 0, vy: 0,
-            w: 30, h: 64, facing: 1, moving: false,
-            onGround: true, lastGroundMs: 0,
-            attackUntil: -1e9, lastAttackMs: -1e9, hurtUntil: -1e9,
-            crossbowUntil: -1e9, scytheUntil: -1e9,
+            x: 0, z: floorDepth() * 0.5, y: 0, vy: 0, w: 30, h: 64, facing: 1, moving: false,
+            onGround: true, lastGroundMs: 0, attackUntil: -1e9, lastAttackMs: -1e9, hurtUntil: -1e9,
+            crossbowUntil: -1e9, scytheUntil: -1e9, canThrow: false, lastThrowMs: -1e9,
             lives: CONFIG.startLives, anim: "idle", animStart: 0,
         };
     }
     function freshState() {
         return {
-            running: false, score: 0, combo: 0, bestCombo: 0, elapsed: 0,
-            spawnTimer: 700, pickupTimer: CONFIG.pickupEveryMs, camX: 0,
-            attackId: 0, flash: 0, nextBossScore: CONFIG.bossFirstScore, bossLevel: 0,
-            player: freshPlayer(),
-            enemies: [], pickups: [], bolts: [], dust: [], stars: [], graves: [],
+            running: false, phase: "playing", score: 0, combo: 0, bestCombo: 0, elapsed: 0,
+            stageIndex: 0, spawnedThisStage: 0, defeatedThisStage: 0,
+            exitOpen: false, exitX: 0, bossSpawned: false, victory: false,
+            spawnTimer: 700, pickupTimer: CONFIG.pickupEveryMs, camX: 0, attackId: 0, flash: 0,
+            player: freshPlayer(), enemies: [], pickups: [], bolts: [], dust: [], stars: [], graves: [],
             boss: null, popups: [], banner: null, shake: 0, runToken: null,
         };
     }
-    // ---- Background -------------------------------------------------------
     function seedBackground() {
         state.stars = [];
         const count = Math.round((viewW * floorTopY()) / 9000);
@@ -368,30 +353,25 @@
         const def = ENEMY_TYPES[typeKey];
         const side = Math.random() < 0.5 ? -1 : 1;
         const x = side > 0 ? state.camX + viewW + 50 : state.camX - 50;
-        const z = Math.random() * floorDepth();
         state.enemies.push({
-            type: typeKey, x, z, y: 0, w: def.w, h: def.h, hp: def.hp, def,
-            wobble: Math.random() * Math.PI * 2, contactUntil: -1e9, hitBy: -1, alive: true,
-            anim: "walk", animStart: nowMs,
+            type: typeKey, x, z: Math.random() * floorDepth(), y: 0, vx: 0, vz: 0, stunUntil: -1e9,
+            w: def.w, h: def.h, hp: def.hp, def, wobble: Math.random() * Math.PI * 2,
+            contactUntil: -1e9, hitBy: -1, alive: true, anim: "walk", animStart: nowMs,
         });
+        state.spawnedThisStage++;
     }
     function spawnPickup() {
         const roll = Math.random();
         const type = roll < 0.16 ? "heart" : roll < 0.46 ? "crossbow" : roll < 0.73 ? "scythe" : "holy";
-        const ahead = state.player.facing * (200 + Math.random() * 240);
-        state.pickups.push({ type, x: state.player.x + ahead, z: Math.random() * floorDepth(), bob: Math.random() * Math.PI * 2, born: nowMs });
+        state.pickups.push({ type, x: state.player.x + state.player.facing * (200 + Math.random() * 240), z: Math.random() * floorDepth(), bob: Math.random() * Math.PI * 2, born: nowMs });
     }
     function spawnBoss() {
-        state.bossLevel++;
-        const hp = 16 + state.bossLevel * 9;
+        const hp = 26;
         state.boss = {
-            x: state.camX + viewW + 80, z: floorDepth() * 0.5, y: 0,
-            w: 60, h: 96, hp, maxHp: hp,
-            nextDashAt: nowMs + 1800, dashUntil: -1e9, dashVx: 0, dashVz: 0,
-            contactUntil: -1e9, hitBy: -1,
+            x: state.camX + viewW + 80, z: floorDepth() * 0.5, y: 0, w: 60, h: 96, hp, maxHp: hp,
+            nextDashAt: nowMs + 1800, dashUntil: -1e9, dashVx: 0, dashVz: 0, contactUntil: -1e9, hitBy: -1,
         };
-        state.banner = { text: "The Master approaches", until: nowMs + 2400 };
-        state.shake = Math.max(state.shake, 8);
+        state.bossSpawned = true;
         Sound.sfx.bossIn();
     }
     // ---- Combat -----------------------------------------------------------
@@ -409,7 +389,7 @@
         p.animStart = nowMs;
         state.attackId++;
         if (nowMs < p.crossbowUntil) {
-            state.bolts.push({ x: p.x + p.facing * 18, z: p.z, y: p.h * 0.55, vx: p.facing * CONFIG.boltSpeed, alive: true });
+            fire("bolt");
             Sound.sfx.shoot();
             return;
         }
@@ -422,19 +402,14 @@
             if (!e.alive || e.hitBy === state.attackId) {
                 continue;
             }
-            const inX = Math.abs(e.x - cx) < reach * 0.5 + e.w * 0.5;
-            const inZ = Math.abs(e.z - p.z) < band;
-            const facingOk = (e.x - p.x) * p.facing > -8;
-            if (inX && inZ && facingOk) {
+            if (Math.abs(e.x - cx) < reach * 0.5 + e.w * 0.5 && Math.abs(e.z - p.z) < band && (e.x - p.x) * p.facing > -8) {
                 hitEnemy(e, state.attackId, scythe);
                 hitAny = true;
             }
         }
         if (state.boss) {
             const b = state.boss;
-            const inX = Math.abs(b.x - cx) < reach * 0.5 + b.w * 0.5;
-            const inZ = Math.abs(b.z - p.z) < band + 10;
-            if (inX && inZ && (b.x - p.x) * p.facing > -8 && b.hitBy !== state.attackId) {
+            if (Math.abs(b.x - cx) < reach * 0.5 + b.w * 0.5 && Math.abs(b.z - p.z) < band + 10 && (b.x - p.x) * p.facing > -8 && b.hitBy !== state.attackId) {
                 b.hitBy = state.attackId;
                 damageBoss(scythe ? 3 : 1);
                 hitAny = true;
@@ -446,6 +421,34 @@
             updateHud();
         }
     }
+    function tryThrow() {
+        if (!state || !state.running) {
+            return;
+        }
+        const p = state.player;
+        if (!p.canThrow || nowMs - p.lastThrowMs < CONFIG.throwCooldownMs) {
+            return;
+        }
+        p.lastThrowMs = nowMs;
+        p.attackUntil = nowMs + CONFIG.attackMs;
+        p.anim = "attack";
+        p.animStart = nowMs;
+        fire("stake");
+        Sound.sfx.shoot();
+    }
+    function fire(kind) {
+        const p = state.player;
+        const speed = kind === "stake" ? CONFIG.throwSpeed : CONFIG.boltSpeed;
+        state.bolts.push({ kind, x: p.x + p.facing * 18, z: p.z, y: p.h * 0.55, vx: p.facing * speed, spin: 0, alive: true });
+    }
+    function knockback(e, lethal) {
+        const p = state.player;
+        const dirx = (Math.sign(e.x - p.x) || p.facing);
+        const resist = e.type === "brute" ? 0.45 : 1;
+        e.vx = dirx * CONFIG.knockImpulse * resist * (lethal ? 1.5 : 1);
+        e.vz = (e.z - p.z >= 0 ? 1 : -1) * 40 * resist;
+        e.stunUntil = nowMs + CONFIG.stunMs;
+    }
     function hitEnemy(e, attackId, lethal = false) {
         e.hitBy = attackId;
         Sound.sfx.hit();
@@ -453,6 +456,7 @@
             e.hp = 1;
         }
         e.hp--;
+        knockback(e, e.hp <= 0);
         if (e.hp > 0) {
             spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 6, "#8a6a9a");
             e.anim = "hurt";
@@ -460,10 +464,10 @@
             return;
         }
         e.alive = false;
+        state.defeatedThisStage++;
         state.combo++;
         state.bestCombo = Math.max(state.bestCombo, state.combo);
-        const mult = 1 + Math.floor(state.combo / 5) * 0.5;
-        const gained = Math.round(e.def.points * mult);
+        const gained = Math.round(e.def.points * (1 + Math.floor(state.combo / 5) * 0.5));
         state.score += gained;
         spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 16, "#c9b8d6");
         spawnPopup(e.x, feetY(e.z, 0) - e.h, "+" + gained);
@@ -477,16 +481,15 @@
         b.hp -= n;
         spawnDust(b.x, feetY(b.z, 0) - b.h * 0.5, 8, "#ff7b7b");
         if (b.hp <= 0) {
-            state.score += 1000 * state.bossLevel;
+            state.score += 2500;
             state.combo += 5;
             spawnDust(b.x, feetY(b.z, 0) - b.h * 0.5, 40, "#f4ecc6");
-            spawnPopup(b.x, feetY(b.z, 0) - b.h, "+" + (1000 * state.bossLevel));
-            state.flash = 0.8;
-            state.shake = Math.max(state.shake, 16);
-            state.banner = { text: "The Master falls", until: nowMs + 2000 };
+            spawnPopup(b.x, feetY(b.z, 0) - b.h, "+2500");
+            state.flash = 0.9;
+            state.shake = Math.max(state.shake, 18);
             Sound.sfx.bossDown();
             state.boss = null;
-            state.nextBossScore = state.score + CONFIG.bossScoreStep;
+            endGame(true); // boss only exists on the finale stage → victory
         }
         updateHud();
     }
@@ -503,19 +506,16 @@
         Sound.sfx.hurt();
         updateHud();
         if (p.lives <= 0) {
-            endGame();
+            endGame(false);
         }
     }
     function spawnDust(x, screenYy, n, color) {
         for (let i = 0; i < n; i++) {
-            const a = Math.random() * Math.PI * 2;
-            const sp = 30 + Math.random() * 140;
+            const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 140;
             state.dust.push({ x, y: screenYy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: 0, max: 0.45 + Math.random() * 0.4, color: color || "#c9b8d6" });
         }
     }
-    function spawnPopup(x, screenYy, text) {
-        state.popups.push({ x, y: screenYy, text, life: 0, max: 0.8, vy: -60 });
-    }
+    function spawnPopup(x, screenYy, text) { state.popups.push({ x, y: screenYy, text, life: 0, max: 0.8, vy: -60 }); }
     function applyPickup(pk) {
         const p = state.player;
         if (pk.type === "heart") {
@@ -532,6 +532,7 @@
             for (const e of state.enemies) {
                 if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < CONFIG.holyRadius) {
                     e.alive = false;
+                    state.defeatedThisStage++;
                     state.score += Math.round(e.def.points * 0.5);
                     spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 14, "#f4ecc6");
                 }
@@ -544,7 +545,6 @@
     function update(dt) {
         state.elapsed += dt * 1000;
         const p = state.player;
-        // --- 8-way movement ---
         const dirX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
         const dirZ = (input.down ? 1 : 0) - (input.up ? 1 : 0);
         p.x += dirX * CONFIG.moveSpeed * dt;
@@ -554,7 +554,6 @@
             p.facing = dirX;
         }
         p.moving = (dirX !== 0 || dirZ !== 0);
-        // --- jump ---
         const canCoyote = p.onGround || (nowMs - p.lastGroundMs) < CONFIG.coyoteMs;
         if (nowMs - input.jumpBufferedAt < CONFIG.jumpBufferMs && canCoyote) {
             p.vy = CONFIG.jumpVel;
@@ -572,18 +571,16 @@
             p.onGround = true;
             p.lastGroundMs = nowMs;
         }
-        // --- player animation state (sprites) ---
         if (nowMs >= p.attackUntil) {
             const want = nowMs < p.hurtUntil ? "hurt" : (p.moving ? "walk" : "idle");
-            if (p.anim !== want && (want !== "hurt" || p.anim !== "hurt")) {
+            if (p.anim !== want) {
                 p.anim = want;
                 p.animStart = nowMs;
             }
         }
-        // --- camera ---
         state.camX += (p.x - viewW * 0.5 - state.camX) * Math.min(1, CONFIG.camLerp * dt);
-        // --- spawning ---
-        if (!state.boss) {
+        // Spawn toward this stage's quota (combat stages only).
+        if (state.phase === "playing" && !stage().boss && state.spawnedThisStage < stage().quota) {
             state.spawnTimer -= dt * 1000;
             if (state.spawnTimer <= 0) {
                 spawnEnemy();
@@ -595,32 +592,38 @@
             spawnPickup();
             state.pickupTimer = CONFIG.pickupEveryMs;
         }
-        if (!state.boss && state.score >= state.nextBossScore) {
-            spawnBoss();
-        }
-        // --- enemies approach in x and z, swarm, and swipe on contact ---
-        const cullLo = p.x - viewW * CONFIG.cullDist, cullHi = p.x + viewW * CONFIG.cullDist;
+        // Enemies: knockback while stunned, else swarm the player in x+z.
         for (const e of state.enemies) {
             if (!e.alive) {
                 continue;
             }
-            const dx = p.x - e.x, dz = p.z - e.z;
-            const dist = Math.hypot(dx, dz) || 1;
-            e.x += (dx / dist) * e.def.speed * dt;
-            e.z += (dz / dist) * e.def.speed * CONFIG.depthScale * dt;
-            e.wobble += dt * 6;
-            if (Math.abs(e.x - p.x) < (e.w + p.w) * 0.5 && Math.abs(e.z - p.z) < 20 && p.y < 30 && nowMs > e.contactUntil) {
-                e.contactUntil = nowMs + 700;
-                hurtPlayer();
+            if (nowMs < e.stunUntil) {
+                e.x += e.vx * dt;
+                e.z += e.vz * dt;
+                const f = Math.min(1, CONFIG.knockFriction * dt);
+                e.vx -= e.vx * f;
+                e.vz -= e.vz * f;
+                e.z = Math.max(0, Math.min(floorDepth(), e.z));
+            }
+            else {
+                const dx = p.x - e.x, dz = p.z - e.z, dist = Math.hypot(dx, dz) || 1;
+                e.x += (dx / dist) * e.def.speed * dt;
+                e.z += (dz / dist) * e.def.speed * CONFIG.depthScale * dt;
+                e.wobble += dt * 6;
+                if (Math.abs(e.x - p.x) < (e.w + p.w) * 0.5 && Math.abs(e.z - p.z) < 20 && p.y < 30 && nowMs > e.contactUntil) {
+                    e.contactUntil = nowMs + 700;
+                    hurtPlayer();
+                }
             }
         }
-        state.enemies = state.enemies.filter(e => e.alive && e.x > cullLo && e.x < cullHi);
+        state.enemies = state.enemies.filter(e => e.alive);
         if (state.boss) {
             updateBoss(dt);
         }
-        // --- bolts ---
+        // Bolts / thrown stakes.
         for (const b of state.bolts) {
             b.x += b.vx * dt;
+            b.spin += dt * 18;
             for (const e of state.enemies) {
                 if (e.alive && Math.abs(e.x - b.x) < e.w * 0.6 && Math.abs(e.z - b.z) < 22) {
                     hitEnemy(e, projHitId--);
@@ -637,7 +640,6 @@
             }
         }
         state.bolts = state.bolts.filter(b => b.alive);
-        // --- pickups ---
         for (const pk of state.pickups) {
             pk.bob += dt * 4;
             if (Math.abs(pk.x - p.x) < 28 && Math.abs(pk.z - p.z) < 24) {
@@ -645,8 +647,7 @@
                 applyPickup(pk);
             }
         }
-        state.pickups = state.pickups.filter(pk => !pk.taken && Math.abs(pk.x - p.x) < viewW * 1.2 && nowMs - pk.born < 20000);
-        // --- particles / popups / flash / shake ---
+        state.pickups = state.pickups.filter(pk => !pk.taken && Math.abs(pk.x - p.x) < viewW * 1.4 && nowMs - pk.born < 20000);
         for (const d of state.dust) {
             d.life += dt;
             d.x += d.vx * dt;
@@ -678,6 +679,16 @@
             p._wasPower = false;
             updateHud();
         }
+        // --- Stage flow: clear → open exit; walk east → next stage ---
+        if (state.phase === "playing" && !stage().boss && state.defeatedThisStage >= stage().quota && state.enemies.length === 0 && !state.exitOpen) {
+            state.exitOpen = true;
+            state.exitX = p.x + CONFIG.exitWalk;
+            state.banner = { text: "Cleared — head east →", until: nowMs + 4000 };
+            state.phase = "cleared";
+        }
+        if (state.phase === "cleared" && p.x >= state.exitX) {
+            advanceStage();
+        }
     }
     function updateBoss(dt) {
         const b = state.boss;
@@ -690,8 +701,7 @@
             b.z += b.dashVz * dt;
         }
         else {
-            const dx = p.x - b.x, dz = p.z - b.z;
-            const dist = Math.hypot(dx, dz) || 1;
+            const dx = p.x - b.x, dz = p.z - b.z, dist = Math.hypot(dx, dz) || 1;
             b.x += (dx / dist) * CONFIG.bossSpeed * dt;
             b.z += (dz / dist) * CONFIG.bossSpeed * CONFIG.depthScale * dt;
             if (nowMs >= b.nextDashAt) {
@@ -710,15 +720,15 @@
     // ---- Render -----------------------------------------------------------
     function render() {
         const ftY = floorTopY();
+        const pal = stage().palette;
         const OS = 26;
         const shx = state.shake > 0 ? (Math.random() * 2 - 1) * state.shake : 0;
         const shy = state.shake > 0 ? (Math.random() * 2 - 1) * state.shake : 0;
         ctx.save();
         ctx.translate(shx, shy);
-        // Sky.
         const sky = ctx.createLinearGradient(0, 0, 0, ftY);
-        sky.addColorStop(0, "#0b0a14");
-        sky.addColorStop(1, "#241a30");
+        sky.addColorStop(0, pal.sky0);
+        sky.addColorStop(1, pal.sky1);
         ctx.fillStyle = sky;
         ctx.fillRect(-OS, -OS, viewW + OS * 2, ftY + OS);
         for (const s of state.stars) {
@@ -738,8 +748,7 @@
         ctx.beginPath();
         ctx.arc(viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2);
         ctx.fill();
-        // Gravestone skyline (behind the floor).
-        ctx.fillStyle = "#161020";
+        ctx.fillStyle = pal.grave;
         for (const g of state.graves) {
             const gx = g.x - state.camX * g.par;
             const px = ((gx % (viewW + 400)) + (viewW + 400)) % (viewW + 400) - 200;
@@ -751,10 +760,9 @@
             ctx.closePath();
             ctx.fill();
         }
-        // Floor band with perspective shading.
         const floor = ctx.createLinearGradient(0, ftY, 0, ftY + floorDepth());
-        floor.addColorStop(0, "#2a2440");
-        floor.addColorStop(1, "#15101f");
+        floor.addColorStop(0, pal.floor0);
+        floor.addColorStop(1, pal.floor1);
         ctx.fillStyle = floor;
         ctx.fillRect(-OS, ftY, viewW + OS * 2, floorDepth() + OS);
         ctx.strokeStyle = "rgba(255,255,255,0.06)";
@@ -762,13 +770,8 @@
         ctx.moveTo(0, ftY);
         ctx.lineTo(viewW, ftY);
         ctx.stroke();
-        // Shadows (drawn flat on the floor for every actor).
         ctx.fillStyle = "rgba(0,0,0,0.28)";
-        const shadow = (x, z, w) => {
-            ctx.beginPath();
-            ctx.ellipse(sx(x), groundY(z), w * 0.5, w * 0.22, 0, 0, Math.PI * 2);
-            ctx.fill();
-        };
+        const shadow = (x, z, w) => { ctx.beginPath(); ctx.ellipse(sx(x), groundY(z), w * 0.5, w * 0.22, 0, 0, Math.PI * 2); ctx.fill(); };
         for (const e of state.enemies) {
             if (e.alive) {
                 shadow(e.x, e.z, e.w);
@@ -799,12 +802,24 @@
         for (const d of list) {
             d.render();
         }
-        // Bolts.
-        ctx.fillStyle = "#e8c659";
+        // Projectiles.
         for (const b of state.bolts) {
-            ctx.fillRect(sx(b.x) - 8, feetY(b.z, b.y) - 1.5, 16, 3);
+            const bx = sx(b.x), by = feetY(b.z, b.y);
+            if (b.kind === "stake") {
+                ctx.save();
+                ctx.translate(bx, by);
+                ctx.rotate(b.spin);
+                ctx.fillStyle = "#8a5a2b";
+                ctx.fillRect(-9, -2, 18, 4);
+                ctx.fillStyle = "#d9b27a";
+                ctx.fillRect(6, -2, 3, 4);
+                ctx.restore();
+            }
+            else {
+                ctx.fillStyle = "#e8c659";
+                ctx.fillRect(bx - 8, by - 1.5, 16, 3);
+            }
         }
-        // Dust.
         for (const d of state.dust) {
             const k = 1 - d.life / d.max;
             ctx.globalAlpha = Math.max(0, k);
@@ -814,7 +829,6 @@
             ctx.fill();
         }
         ctx.globalAlpha = 1;
-        // Popups.
         ctx.font = "bold 16px Georgia, serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -824,6 +838,24 @@
             ctx.fillText(pop.text, sx(pop.x), pop.y);
         }
         ctx.globalAlpha = 1;
+        // EXIT arrow (when a scene is cleared).
+        if (state.exitOpen) {
+            const ax = viewW - 60, ay = ftY + floorDepth() * 0.45, pulse = 0.6 + 0.4 * Math.sin(nowMs / 200);
+            ctx.globalAlpha = pulse;
+            ctx.fillStyle = "#e8c659";
+            ctx.beginPath();
+            ctx.moveTo(ax - 24, ay - 18);
+            ctx.lineTo(ax + 10, ay);
+            ctx.lineTo(ax - 24, ay + 18);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillRect(ax - 44, ay - 7, 22, 14);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = "#e8c659";
+            ctx.font = "bold 13px Georgia, serif";
+            ctx.textAlign = "center";
+            ctx.fillText("EXIT", ax - 14, ay - 28);
+        }
         ctx.restore();
         if (state.flash > 0) {
             ctx.fillStyle = `rgba(255,240,220,${state.flash * 0.5})`;
@@ -831,15 +863,14 @@
         }
         if (state.banner) {
             ctx.globalAlpha = Math.min(1, (state.banner.until - nowMs) / 500);
-            ctx.fillStyle = "#ff5b5b";
+            ctx.fillStyle = "#ffd76b";
             ctx.font = "italic bold 26px Georgia, serif";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillText(state.banner.text, viewW / 2, viewH * 0.28);
+            ctx.fillText(state.banner.text, viewW / 2, viewH * 0.26);
             ctx.globalAlpha = 1;
         }
     }
-    // ---- Actor draws: sprite if loaded, else procedural fallback ----------
     function drawBuffy() {
         const p = state.player;
         const fx = sx(p.x), fy = feetY(p.z, p.y);
@@ -1006,12 +1037,13 @@
     const hudCombo = document.getElementById("hud-combo");
     const hudLives = document.getElementById("hud-lives");
     const hudPower = document.getElementById("hud-power");
+    const hudStage = document.getElementById("hud-stage");
     const bossBar = document.getElementById("boss-bar");
+    const bossName = document.getElementById("boss-name");
     const bossFill = document.getElementById("boss-hp-fill");
     function updateHud() {
         hudScore.textContent = state.score.toString().padStart(6, "0");
         hudCombo.textContent = state.combo >= 2 ? ("x" + state.combo) : "";
-        // Segmented health bar: filled pips for remaining lives.
         let bar = "";
         for (let i = 0; i < CONFIG.maxLives; i++) {
             bar += i < state.player.lives ? "▮" : "▯";
@@ -1029,9 +1061,18 @@
             }
             hudPower.textContent = parts.join("  ");
         }
+        if (hudStage) {
+            const s = stage();
+            hudStage.textContent = s.boss ? s.name + " — BOSS"
+                : state.phase === "cleared" ? s.name + " — CLEAR →"
+                    : s.name + "  " + Math.min(state.defeatedThisStage, s.quota) + "/" + s.quota;
+        }
         if (bossBar) {
             if (state.boss) {
                 bossBar.classList.remove("hidden");
+                if (bossName) {
+                    bossName.textContent = stage().name;
+                }
                 bossFill.style.width = Math.max(0, (state.boss.hp / state.boss.maxHp) * 100) + "%";
             }
             else {
@@ -1040,9 +1081,9 @@
         }
     }
     // ---- Loop -------------------------------------------------------------
-    let rafId = 0, lastTs = 0;
+    let rafId = 0, lastTs = 0, paused = false;
     function frame(ts) {
-        if (!state.running) {
+        if (!state.running || paused) {
             return;
         }
         if (!lastTs) {
@@ -1055,22 +1096,90 @@
             dt = 0.05;
         }
         update(dt);
-        if (state.running) {
+        if (state.running && !paused) {
             render();
             rafId = requestAnimationFrame(frame);
         }
     }
-    // ---- Lifecycle --------------------------------------------------------
+    // ---- Stage flow + lifecycle -------------------------------------------
     const overlayStart = document.getElementById("overlay-start");
     const overlayOver = document.getElementById("overlay-over");
+    const overlayStory = document.getElementById("overlay-story");
+    const storyTitle = document.getElementById("story-title");
+    const storyText = document.getElementById("story-text");
     const controls = document.getElementById("controls");
+    const btnThrow = document.getElementById("btn-throw");
+    let storyContinue = null;
     function requestRunToken() {
-        fetch("/api/run/start", { method: "POST" })
-            .then(r => r.ok ? r.json() : null)
+        fetch("/api/run/start", { method: "POST" }).then(r => r.ok ? r.json() : null)
             .then((d) => { if (d && d.token && state) {
             state.runToken = d.token;
-        } })
-            .catch(() => { });
+        } }).catch(() => { });
+    }
+    function showStory(s, idx, onContinue) {
+        cancelAnimationFrame(rafId);
+        paused = true;
+        storyContinue = onContinue;
+        if (storyTitle) {
+            storyTitle.textContent = "Stage " + (idx + 1) + " · " + s.name;
+        }
+        if (storyText) {
+            storyText.textContent = s.story;
+        }
+        if (controls) {
+            controls.classList.add("hidden");
+        }
+        if (overlayStory) {
+            overlayStory.classList.remove("hidden");
+        }
+    }
+    function continueStory() {
+        const cb = storyContinue;
+        storyContinue = null;
+        if (overlayStory) {
+            overlayStory.classList.add("hidden");
+        }
+        if (cb) {
+            cb();
+        }
+    }
+    function enterStage(i) {
+        state.stageIndex = i;
+        state.spawnedThisStage = 0;
+        state.defeatedThisStage = 0;
+        state.exitOpen = false;
+        state.bossSpawned = false;
+        state.enemies = [];
+        state.bolts = [];
+        state.pickups = [];
+        state.camX = state.player.x - viewW * 0.5;
+        seedBackground();
+        const s = STAGES[i];
+        if (s.levelUp) {
+            state.player.canThrow = true;
+            if (btnThrow) {
+                btnThrow.classList.remove("hidden");
+            }
+            Sound.sfx.levelup();
+        }
+        showStory(s, i, () => beginStage(s));
+    }
+    function beginStage(s) {
+        state.phase = "playing";
+        state.spawnTimer = 500;
+        if (s.boss) {
+            spawnBoss();
+        }
+        state.banner = { text: s.name, until: nowMs + 2200 };
+        Sound.sfx.stage();
+        if (controls) {
+            controls.classList.remove("hidden");
+            controls.setAttribute("aria-hidden", "false");
+        }
+        updateHud();
+        paused = false;
+        lastTs = 0;
+        rafId = requestAnimationFrame(frame);
     }
     function startGame() {
         resize();
@@ -1078,28 +1187,35 @@
         Sound.startMusic();
         state = freshState();
         requestRunToken();
-        state.camX = state.player.x - viewW * 0.5;
-        seedBackground();
         state.running = true;
-        lastTs = 0;
         held.clear();
         input.left = input.right = input.up = input.down = false;
         input.jumpBufferedAt = -1e9;
         overlayStart.classList.add("hidden");
         overlayOver.classList.add("hidden");
-        if (controls) {
-            controls.classList.remove("hidden");
-            controls.setAttribute("aria-hidden", "false");
+        if (btnThrow) {
+            btnThrow.classList.add("hidden");
         }
         hud.setAttribute("aria-hidden", "false");
         updateHud();
-        rafId = requestAnimationFrame(frame);
+        enterStage(0);
     }
-    function endGame() {
+    function advanceStage() {
+        if (state.stageIndex + 1 < STAGES.length) {
+            enterStage(state.stageIndex + 1);
+        }
+    }
+    function endGame(victory) {
         state.running = false;
+        state.victory = victory;
         cancelAnimationFrame(rafId);
         Sound.stopMusic();
-        Sound.sfx.over();
+        if (victory) {
+            Sound.sfx.win();
+        }
+        else {
+            Sound.sfx.over();
+        }
         render();
         if (controls) {
             controls.classList.add("hidden");
@@ -1108,9 +1224,10 @@
         if (bossBar) {
             bossBar.classList.add("hidden");
         }
-        showGameOver();
+        showGameOver(victory);
     }
     // ---- Game over: initials + leaderboard --------------------------------
+    const overTitle = document.getElementById("over-title");
     const finalScoreEl = document.getElementById("final-score");
     const entryBlock = document.getElementById("entry-block");
     const boardBlock = document.getElementById("board-block");
@@ -1118,7 +1235,10 @@
     const charButtons = Array.from(document.querySelectorAll("#initials .char"));
     const btnSubmit = document.getElementById("btn-submit");
     const initialsState = [0, 0, 0];
-    function showGameOver() {
+    function showGameOver(victory) {
+        if (overTitle) {
+            overTitle.textContent = victory ? "Sunnydale Saved" : "Dawn Breaks";
+        }
         finalScoreEl.textContent = state.score.toLocaleString();
         entryBlock.classList.remove("hidden");
         boardBlock.classList.add("hidden");
@@ -1130,10 +1250,7 @@
     charButtons.forEach(function (btn) {
         var _a;
         const i = parseInt((_a = btn.dataset.i) !== null && _a !== void 0 ? _a : "0", 10);
-        btn.addEventListener("click", function () {
-            initialsState[i] = (initialsState[i] + 1) % LETTERS.length;
-            btn.textContent = LETTERS[initialsState[i]];
-        });
+        btn.addEventListener("click", function () { initialsState[i] = (initialsState[i] + 1) % LETTERS.length; btn.textContent = LETTERS[initialsState[i]]; });
     });
     function currentInitials() { return initialsState.map(i => LETTERS[i]).join(""); }
     const tabAll = document.getElementById("tab-all");
@@ -1146,11 +1263,7 @@
         lastSubmit = { initials: currentInitials(), score: state.score };
         let posted = null;
         try {
-            const resp = await fetch("/api/scores", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ initials: lastSubmit.initials, score: lastSubmit.score, token: state.runToken }),
-            });
+            const resp = await fetch("/api/scores", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initials: lastSubmit.initials, score: lastSubmit.score, token: state.runToken }) });
             if (resp.ok) {
                 posted = await resp.json();
             }
@@ -1177,13 +1290,10 @@
                 top = await resp.json();
             }
         }
-        catch (err) { /* leave empty */ }
+        catch (err) { /* empty */ }
         renderBoard(top);
     }
-    function setActiveTab() {
-        tabAll === null || tabAll === void 0 ? void 0 : tabAll.classList.toggle("active", boardPeriod === "all");
-        tabToday === null || tabToday === void 0 ? void 0 : tabToday.classList.toggle("active", boardPeriod === "today");
-    }
+    function setActiveTab() { tabAll === null || tabAll === void 0 ? void 0 : tabAll.classList.toggle("active", boardPeriod === "all"); tabToday === null || tabToday === void 0 ? void 0 : tabToday.classList.toggle("active", boardPeriod === "today"); }
     function isMine(row) { return !!lastSubmit && row.initials === lastSubmit.initials && row.score === lastSubmit.score; }
     function renderBoard(top) {
         boardList.innerHTML = "";
@@ -1218,6 +1328,8 @@
     tabToday === null || tabToday === void 0 ? void 0 : tabToday.addEventListener("click", () => { loadBoard("today"); });
     document.getElementById("btn-start").addEventListener("click", startGame);
     document.getElementById("btn-again").addEventListener("click", startGame);
+    (_a = document.getElementById("btn-story-continue")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", continueStory);
+    overlayStory === null || overlayStory === void 0 ? void 0 : overlayStory.addEventListener("pointerdown", (e) => { e.preventDefault(); continueStory(); });
     const btnMute = document.getElementById("btn-mute");
     function refreshMuteIcon() { if (btnMute) {
         btnMute.textContent = Sound.isMuted() ? "🔇" : "🔊";

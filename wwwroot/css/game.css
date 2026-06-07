@@ -83,6 +83,7 @@ html, body {
 .hud-score { font-weight: bold; color: var(--gold); margin-left: auto; font-variant-numeric: tabular-nums; }
 .hud-combo { color: #ff7b7b; font-style: italic; }
 .hud-power { color: #bfe3ff; font-size: 1rem; }
+.hud-stage { color: var(--muted); font-size: 0.78rem; letter-spacing: 0.06em; }
 
 /* ---- Boss health bar ---- */
 .boss-bar {
@@ -266,6 +267,7 @@ html, body {
 
 .panel .final { font-size: 1.2rem; margin: 0 0 16px; }
 .panel .final span { color: var(--gold); font-weight: bold; }
+.panel .story-text { white-space: pre-line; color: var(--ink); margin: 0 0 20px; line-height: 1.5; }
 
 /* ---- Buttons / links ---- */
 .arcade-btn {
