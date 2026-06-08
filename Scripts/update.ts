@@ -3,6 +3,15 @@
  * enemy AI + contact, projectiles, pickups, particles, the boss, and the stage-clear flow.
  */
 namespace SN {
+    // ---- Wave gating ------------------------------------------------------
+    // A combat stage is split into arenas: the camera locks, a wave of vamps spawns, and the
+    // player can't push east until it's cleared. Falls back to a single wave of `quota`.
+    export function effectiveWaves(s: Stage): number[] { return (s.waves && s.waves.length) ? s.waves : [s.quota]; }
+    export function waveCumQuota(s: Stage, i: number): number { const w = effectiveWaves(s); let n = 0; for (let k = 0; k <= i && k < w.length; k++) { n += w[k]; } return n; }
+    export function startWave(i: number): void {
+        state.waveIndex = i; state.arenaLocked = true; state.arenaLockX = state.camX; state.spawnTimer = 400;
+    }
+
     export function update(dt: number): void {
         state.elapsed += dt * 1000;
         const p = state.player;
@@ -28,28 +37,46 @@ namespace SN {
         p.vy -= CONFIG.gravity * dt; p.y += p.vy * dt; p.onGround = false;
         if (p.y <= 0) { p.y = 0; p.vy = 0; p.onGround = true; p.lastGroundMs = nowMs; }
 
-        if (nowMs >= p.attackUntil) {
-            const want = nowMs < p.hurtUntil ? "hurt" : (p.moving ? "walk" : "idle");
+        // While an arena is locked, the player can't walk off the right (or left) of the screen.
+        if (state.arenaLocked) {
+            const margin = p.w * 1.2;
+            p.x = Math.max(state.arenaLockX + margin, Math.min(state.arenaLockX + viewW - margin, p.x));
+        }
+
+        // Animation: attack holds until attackUntil; hurt/knockdown holds through hitstun (set by
+        // hurtPlayer); otherwise resolve to walk/idle.
+        if (nowMs >= p.attackUntil && nowMs >= p.hitstunUntil) {
+            const want = p.moving ? "walk" : "idle";
             if (p.anim !== want) { p.anim = want; p.animStart = nowMs; }
         }
 
-        state.camX += (p.x - viewW * 0.5 - state.camX) * Math.min(1, CONFIG.camLerp * dt);
+        // Camera holds at the lock line while an arena is active, else follows the player east.
+        if (state.arenaLocked) { state.camX += (state.arenaLockX - state.camX) * Math.min(1, CONFIG.camLerp * dt); }
+        else { state.camX += (p.x - viewW * 0.5 - state.camX) * Math.min(1, CONFIG.camLerp * dt); }
 
-        // Spawn toward this stage's quota (combat stages only).
-        if (state.phase === "playing" && !stage().boss && state.spawnedThisStage < stage().quota) {
+        // Spawn the current wave's vamps (only while its arena is locked).
+        if (state.phase === "playing" && !stage().boss && state.arenaLocked && state.spawnedThisStage < waveCumQuota(stage(), state.waveIndex)) {
             state.spawnTimer -= dt * 1000;
             if (state.spawnTimer <= 0) { spawnEnemy(); state.spawnTimer = CONFIG.spawnStartMs + (CONFIG.spawnMinMs - CONFIG.spawnStartMs) * difficultyT(); }
         }
         state.pickupTimer -= dt * 1000;
         if (state.pickupTimer <= 0) { spawnPickup(); state.pickupTimer = CONFIG.pickupEveryMs; }
 
-        // Enemies: knockback while stunned, else run the attack state machine — chase to a
-        // standoff distance, telegraph a wind-up, strike, recover. Touching the player never
-        // damages; only a landed strike does, and the wind-up is a real window to dodge.
+        // Enemies: grabbed bodies and knockdown/thrown arcs first, else the attack state machine —
+        // chase to standoff, telegraph a wind-up, strike, recover; capable vamps may raise a guard.
+        // Touching the player never damages; only a landed strike does (the wind-up is a dodge window).
         let attackers = 0;
         for (const e of state.enemies) { if (e.alive && (e.phase === "windup" || e.phase === "active")) { attackers++; } }
         for (const e of state.enemies) {
             if (!e.alive) { continue; }
+
+            if (e.grabbed) {   // held just in front of the player until thrown or the hold lapses
+                const hold = p.x + p.facing * (p.w * 0.5 + e.w * 0.5 + 4);
+                e.x += (hold - e.x) * Math.min(1, 18 * dt); e.z = p.z; e.y = e.h * 0.25; e.wobble += dt * 4;
+                if (nowMs >= p.grabUntil) { e.grabbed = false; e.phase = "chase"; e.y = 0; if (p.grabbing === e) { p.grabbing = null; } }
+                continue;
+            }
+            if (e.phase === "down" || e.phase === "getup" || e.phase === "thrown") { updateDownedEnemy(e, dt); continue; }
             if (nowMs < e.stunUntil) {
                 e.x += e.vx * dt; e.z += e.vz * dt;
                 const f = Math.min(1, CONFIG.knockFriction * dt); e.vx -= e.vx * f; e.vz -= e.vz * f;
@@ -60,9 +87,13 @@ namespace SN {
             const adx = Math.abs(dx), adz = Math.abs(dz);
             e.wobble += dt * 6;
 
-            if (e.phase === "chase") {
+            if (e.phase === "block") {
+                if (nowMs >= e.phaseUntil) { e.phase = "chase"; }
+            } else if (e.phase === "chase") {
                 const aligned = adx < CONFIG.enemyAttackRangeX && adz < CONFIG.enemyAttackBandZ;
-                if (aligned && nowMs > e.phaseUntil && attackers < CONFIG.maxAttackers) {
+                if (e.def.guard > 0 && aligned && nowMs > e.phaseUntil && Math.random() < e.def.guard * dt * 1.2) {
+                    e.phase = "block"; e.phaseUntil = nowMs + CONFIG.guardHoldMs; e.anim = "block"; e.animStart = nowMs;   // raise a guard
+                } else if (aligned && nowMs > e.phaseUntil && attackers < CONFIG.maxAttackers) {
                     e.phase = "windup"; e.phaseUntil = nowMs + e.def.windup; attackers++;
                     e.anim = "attack"; e.animStart = nowMs;
                 } else {
@@ -87,9 +118,9 @@ namespace SN {
                 if (nowMs >= e.phaseUntil) { e.phase = "chase"; }
             }
         }
-        // Gentle separation along z so vamps fan out instead of stacking (skip stunned/striking).
+        // Gentle separation along z so vamps fan out instead of stacking (skip busy/airborne ones).
         for (const e of state.enemies) {
-            if (!e.alive || nowMs < e.stunUntil || e.phase === "windup" || e.phase === "active") { continue; }
+            if (!e.alive || e.grabbed || nowMs < e.stunUntil || e.phase === "windup" || e.phase === "active" || e.phase === "down" || e.phase === "getup" || e.phase === "thrown") { continue; }
             for (const o of state.enemies) {
                 if (o === e || !o.alive) { continue; }
                 if (Math.abs(e.x - o.x) < CONFIG.enemySeparation && Math.abs(e.z - o.z) < CONFIG.enemySeparation * 0.7) {
@@ -125,13 +156,77 @@ namespace SN {
         const powerActive = nowMs < p.crossbowUntil || nowMs < p.scytheUntil;
         if (powerActive) { p._wasPower = true; updateHud(); } else if (p._wasPower) { p._wasPower = false; updateHud(); }
 
-        // --- Stage flow: clear → open exit; walk east → next stage ---
-        if (state.phase === "playing" && !stage().boss && state.defeatedThisStage >= stage().quota && state.enemies.length === 0 && !state.exitOpen) {
-            state.exitOpen = true; state.exitX = p.x + CONFIG.exitWalk;
-            state.banner = { text: "Cleared — head east →", until: nowMs + 4000 };
-            state.phase = "cleared";
+        // --- Stage flow: wave gating → clear arena → push east to the next wave → exit ---
+        const s = stage();
+        if (state.phase === "playing" && !s.boss) {
+            const waveTarget = waveCumQuota(s, state.waveIndex);
+            const last = state.waveIndex >= effectiveWaves(s).length - 1;
+            const cleared = state.defeatedThisStage >= waveTarget && state.enemies.length === 0;
+            if (state.arenaLocked && cleared) {
+                if (last) {
+                    state.exitOpen = true; state.exitX = p.x + CONFIG.exitWalk; state.arenaLocked = false;
+                    if (!state.tookDamageThisStage) {
+                        state.score += CONFIG.flawlessBonus;
+                        spawnPopup(p.x, feetY(p.z, 0) - p.h - 16, "FLAWLESS +" + CONFIG.flawlessBonus);
+                        state.banner = { text: "FLAWLESS!  +" + CONFIG.flawlessBonus + " — head east →", until: nowMs + 4500 };
+                        Sound.sfx.levelup();
+                    } else {
+                        state.banner = { text: "Cleared — head east →", until: nowMs + 4000 };
+                    }
+                    state.phase = "cleared"; updateHud();
+                } else {
+                    state.arenaLocked = false; state.nextWaveAtX = state.arenaLockX + viewW * 0.72;
+                    state.banner = { text: "Wave clear — push east →", until: nowMs + 3000 }; updateHud();
+                }
+            } else if (!state.arenaLocked && !state.exitOpen && state.defeatedThisStage >= waveTarget && p.x >= state.nextWaveAtX) {
+                startWave(state.waveIndex + 1);
+                state.banner = { text: "Wave " + (state.waveIndex + 1) + " of " + effectiveWaves(s).length, until: nowMs + 1800 };
+                Sound.sfx.stage(); updateHud();
+            }
         }
         if (state.phase === "cleared" && p.x >= state.exitX) { advanceStage(); }
+    }
+
+    // A knocked-down or thrown vamp: arc under gravity, slide, bounce off screen edges; a thrown
+    // body ploughs through other vamps (knocking them down too). Settles into "down" → "getup" → chase.
+    export function updateDownedEnemy(e: Enemy, dt: number): void {
+        e.x += e.vx * dt;
+        e.vy -= CONFIG.gravity * dt; e.y = e.y + e.vy * dt;
+        const grounded = e.y <= 0;
+        if (grounded) { e.y = 0; e.vy = 0; const gf = Math.min(1, CONFIG.downGroundFriction * dt); e.vx -= e.vx * gf; }
+        else { const af = Math.min(1, CONFIG.downAirDrag * dt); e.vx -= e.vx * af; }
+        e.z = Math.max(0, Math.min(floorDepth(), e.z));
+        wallBounce(e);
+
+        if (e.phase === "thrown") {
+            for (const o of state.enemies) {
+                if (o === e || !o.alive || o.grabbed || o.phase === "thrown") { continue; }
+                if (Math.abs(o.x - e.x) < (o.w + e.w) * 0.5 && Math.abs(o.z - e.z) < 22) { hitEnemy(o, projHitId--, false, true, true); }
+            }
+            if (state.boss && Math.abs(state.boss.x - e.x) < (state.boss.w + e.w) * 0.5 && Math.abs(state.boss.z - e.z) < 26) { damageBoss(CONFIG.throwDamage); e.bounced = true; }
+            if (grounded && Math.abs(e.vx) < 40) { e.phase = "down"; e.phaseUntil = nowMs + CONFIG.downLieMs; }
+            return;
+        }
+        if (e.phase === "down" && grounded && nowMs >= e.phaseUntil && Math.abs(e.vx) < 28) { e.phase = "getup"; e.phaseUntil = nowMs + CONFIG.getupMs; e.anim = "knockdown"; e.animStart = nowMs; }
+        else if (e.phase === "getup" && nowMs >= e.phaseUntil) { e.phase = "chase"; e.stunUntil = -1e9; }
+    }
+
+    // Reflect a knocked-down/thrown vamp off the camera's screen edges — once per knockdown — for a
+    // splash of bonus damage. Classic "bounce them off the wall" payoff.
+    export function wallBounce(e: Enemy): void {
+        if (e.bounced) { return; }
+        const leftEdge = state.camX + e.w * 0.5, rightEdge = state.camX + viewW - e.w * 0.5;
+        if ((e.x < leftEdge && e.vx < 0) || (e.x > rightEdge && e.vx > 0)) {
+            e.x = Math.max(leftEdge, Math.min(rightEdge, e.x));
+            e.vx = -e.vx * CONFIG.wallBounceVx; e.bounced = true;
+            spawnDust(e.x, feetY(e.z, e.y) - e.h * 0.4, 10, "#cfe8ff"); state.shake = Math.max(state.shake, 6); Sound.sfx.hit();
+            e.hp -= CONFIG.wallBounceDamage;
+            if (e.hp <= 0) {
+                e.alive = false; state.defeatedThisStage++; state.combo++; state.bestCombo = Math.max(state.bestCombo, state.combo);
+                state.score += Math.round(e.def.points * 0.6);
+                spawnPopup(e.x, feetY(e.z, 0) - e.h, "WALL!"); spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 16, "#c9b8d6"); updateHud();
+            }
+        }
     }
 
     export function updateBoss(dt: number): void {

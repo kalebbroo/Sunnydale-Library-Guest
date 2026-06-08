@@ -22,28 +22,43 @@ var SN;
         enemyStandoff: 46, enemyAttackRangeX: 60, enemyAttackBandZ: 22, enemyActiveMs: 120,
         maxAttackers: 2, // attack tokens: how many vamps may swing at once
         enemySeparation: 26, // gentle push-apart so they don't stack on one spot
-        // Player getting hit: i-frames (above) + a shove + a brief loss of control.
-        playerKnock: 300, hitstunMs: 300,
+        // Player getting hit: i-frames (above) + a shove + a brief loss of control. Heavy hits
+        // (brute/boss/thrown) shove harder and lock control longer (a "knockdown").
+        playerKnock: 300, hitstunMs: 300, heavyHitKnock: 430, knockdownMs: 620,
         hitStopMs: 60, // freeze-frames on a landed hit (juice)
+        // Combo finisher: every Nth connected melee hit launches survivors into a knockdown.
+        finisherEvery: 3, chainWindowMs: 1200, finisherHitStopMs: 110,
+        // Knockdown physics: pop up, arc under gravity, slide, lie, then get up.
+        downPop: 360, downKnock: 540, downLieMs: 650, getupMs: 360, downAirDrag: 1.2, downGroundFriction: 9,
+        // Jump attack: a downward strike with a wider band, and a pogo bounce on a clean hit.
+        jumpAtkReachX: 72, jumpAtkBandZ: 40, jumpAtkBounce: 430,
+        // Grab/throw: get close to a downed/stunned vamp to grab; throw it as a body projectile.
+        grabRangeX: 40, grabRangeZ: 22, grabHoldMs: 1400, throwSpeedX: 560, throwPop: 300, throwDamage: 1,
+        // Wall bounce: a knocked-down vamp that hits a screen edge reflects + takes bonus damage.
+        wallBounceDamage: 1, wallBounceVx: 0.55,
+        // Enemy guard: chance a capable vamp raises a block when the player winds up an attack.
+        guardHoldMs: 520,
+        flawlessBonus: 1500, // cleared a stage without taking a hit
+        bgPar: { sky: 0.15, mid: 0.45, near: 1.0 }, // parallax factors for painted bg layers
         exitWalk: 440, // how far east to walk through an opened exit
     };
     SN.LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     SN.ENEMY_TYPES = {
-        grunt: { hp: 2, w: 30, h: 62, speed: 80, points: 120, color: "#1c1430", weight: () => 1.0, windup: 380, recover: 520, knock: 300 },
-        runner: { hp: 1, w: 26, h: 56, speed: 150, points: 160, color: "#3a1330", weight: t => Math.max(0, t - 0.1) * 1.3, windup: 240, recover: 360, knock: 260 },
-        brute: { hp: 4, w: 46, h: 78, speed: 55, points: 380, color: "#0f1a14", weight: t => Math.max(0, t - 0.25) * 0.9, windup: 600, recover: 760, knock: 470 },
+        grunt: { hp: 2, w: 30, h: 62, speed: 80, points: 120, color: "#1c1430", weight: () => 1.0, windup: 380, recover: 520, knock: 300, guard: 0 },
+        runner: { hp: 1, w: 26, h: 56, speed: 150, points: 160, color: "#3a1330", weight: t => Math.max(0, t - 0.1) * 1.3, windup: 240, recover: 360, knock: 260, guard: 0 },
+        brute: { hp: 4, w: 46, h: 78, speed: 55, points: 380, color: "#0f1a14", weight: t => Math.max(0, t - 0.25) * 0.9, windup: 600, recover: 760, knock: 470, guard: 0.4 },
     };
     // ---- Stages (data-driven scenes; last one is the boss) ----------------
     SN.STAGES = [
-        { name: "Restfield Cemetery", quota: 6, palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
+        { name: "Restfield Cemetery", quota: 6, waves: [3, 3], bg: "cemetery", palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
             story: "Patrol's on. The dead don't rest in Sunnydale — clear the fledglings prowling Restfield." },
-        { name: "The Crypt", quota: 8, palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
+        { name: "The Crypt", quota: 8, waves: [4, 4], bg: "crypt", palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
             story: "Down into the crypt. Colder here, and something's been feeding well." },
-        { name: "Sunnydale High Halls", quota: 10, levelUp: true, palette: { sky0: "#14100a", sky1: "#2a2014", floor0: "#3a2f1f", floor1: "#1a140c", grave: "#241a10" },
+        { name: "Sunnydale High Halls", quota: 10, waves: [3, 3, 4], bg: "halls", levelUp: true, palette: { sky0: "#14100a", sky1: "#2a2014", floor0: "#3a2f1f", floor1: "#1a140c", grave: "#241a10" },
             story: "Back at school after dark. Giles stocked your locker — a brace of throwing stakes.\nLEVEL UP: press THROW (L) to hurl a stake!" },
-        { name: "The Library", quota: 12, palette: { sky0: "#0e0a14", sky1: "#241a30", floor0: "#2e2640", floor1: "#16101f", grave: "#1a1428" },
+        { name: "The Library", quota: 12, waves: [4, 4, 4], bg: "library", palette: { sky0: "#0e0a14", sky1: "#241a30", floor0: "#2e2640", floor1: "#16101f", grave: "#1a1428" },
             story: "The library sits right over the Hellmouth. They're pouring out. Hold the line." },
-        { name: "The Master's Lair", quota: 0, boss: true, palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
+        { name: "The Master's Lair", quota: 0, boss: true, bg: "lair", palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
             story: "The Master himself. This is what you were chosen for, Slayer. End it." },
     ];
     function stage() { return SN.STAGES[Math.max(0, Math.min(SN.state.stageIndex, SN.STAGES.length - 1))]; }
@@ -211,6 +226,7 @@ var SN;
         }
         const sfx = {
             hit() { burst(0.09, 0.5); blip(420, 90, 0.10, "square", 0.18); },
+            finisher() { burst(0.14, 0.5); blip(300, 70, 0.20, "sawtooth", 0.3); blip(160, 60, 0.24, "square", 0.16); },
             whiff() { blip(300, 150, 0.08, "sine", 0.12); },
             hurt() { blip(220, 55, 0.30, "sawtooth", 0.35); },
             pickup() { blip(520, 990, 0.14, "triangle", 0.30); },
@@ -278,6 +294,36 @@ var SN;
         }
     }
     SN.loadSheets = loadSheets;
+    // ---- Background layers ------------------------------------------------
+    // Per-stage parallax PNGs at /img/bg_<prefix>_{sky,mid,near}.png. Until they exist the layers
+    // stay un-ready and render() falls back to the procedural palette. See SPRITES.md §2.
+    SN.bgSets = {};
+    function bgLayer(src, par) {
+        const L = { img: null, ready: false, par };
+        if (typeof Image !== "undefined") {
+            try {
+                const img = new Image();
+                img.onload = () => { L.img = img; L.ready = true; };
+                img.onerror = () => { L.ready = false; };
+                img.src = src;
+            }
+            catch { /* ignore */ }
+        }
+        return L;
+    }
+    function loadBg(prefix) {
+        if (SN.bgSets[prefix]) {
+            return SN.bgSets[prefix];
+        }
+        const set = {
+            sky: bgLayer("/img/bg_" + prefix + "_sky.png", SN.CONFIG.bgPar.sky),
+            mid: bgLayer("/img/bg_" + prefix + "_mid.png", SN.CONFIG.bgPar.mid),
+            near: bgLayer("/img/bg_" + prefix + "_near.png", SN.CONFIG.bgPar.near),
+        };
+        SN.bgSets[prefix] = set;
+        return set;
+    }
+    SN.loadBg = loadBg;
     function drawSheet(kind, anim, animStart, fxp, fyp, facing) {
         const stt = SN.sheets[kind];
         if (!stt || !stt.ready || !stt.img) {
@@ -309,7 +355,7 @@ var SN;
         return {
             x: 0, z: SN.floorDepth() * 0.5, y: 0, vy: 0, w: 30, h: 64, facing: 1, moving: false,
             onGround: true, lastGroundMs: 0, attackUntil: -1e9, lastAttackMs: -1e9, hurtUntil: -1e9,
-            hitstunUntil: -1e9, knockVx: 0, knockVz: 0,
+            hitstunUntil: -1e9, knockVx: 0, knockVz: 0, chain: 0, chainAt: -1e9, grabbing: null, grabUntil: -1e9,
             crossbowUntil: -1e9, scytheUntil: -1e9, canThrow: false, lastThrowMs: -1e9,
             lives: SN.CONFIG.startLives, anim: "idle", animStart: 0,
         };
@@ -320,6 +366,7 @@ var SN;
             running: false, phase: "playing", score: 0, combo: 0, bestCombo: 0, elapsed: 0,
             stageIndex: 0, spawnedThisStage: 0, defeatedThisStage: 0,
             exitOpen: false, exitX: 0, bossSpawned: false, victory: false,
+            tookDamageThisStage: false, arenaLocked: false, arenaLockX: 0, nextWaveAtX: 0, waveIndex: 0,
             spawnTimer: 700, pickupTimer: SN.CONFIG.pickupEveryMs, camX: 0, attackId: 0, flash: 0, hitStop: 0,
             player: freshPlayer(), enemies: [], pickups: [], bolts: [], dust: [], stars: [], graves: [],
             boss: null, popups: [], banner: null, shake: 0, runToken: null,
@@ -438,10 +485,10 @@ var SN;
         const side = Math.random() < 0.5 ? -1 : 1;
         const x = side > 0 ? SN.state.camX + SN.viewW + 50 : SN.state.camX - 50;
         SN.state.enemies.push({
-            type: typeKey, x, z: Math.random() * SN.floorDepth(), y: 0, vx: 0, vz: 0, stunUntil: -1e9,
+            type: typeKey, x, z: Math.random() * SN.floorDepth(), y: 0, vy: 0, vx: 0, vz: 0, stunUntil: -1e9,
             w: def.w, h: def.h, hp: def.hp, def, wobble: Math.random() * Math.PI * 2,
             contactUntil: -1e9, hitBy: -1, alive: true, anim: "walk", animStart: SN.nowMs,
-            phase: "chase", phaseUntil: -1e9,
+            phase: "chase", phaseUntil: -1e9, grabbed: false, bounced: false,
         });
         SN.state.spawnedThisStage++;
     }
@@ -474,22 +521,44 @@ var SN;
             return;
         }
         const p = SN.state.player;
+        if (SN.nowMs < p.hitstunUntil) {
+            return;
+        } // can't attack while knocked back
+        if (p.grabbing) {
+            throwGrabbed();
+            return;
+        } // HIT while holding a vamp → throw it
         if (SN.nowMs - p.lastAttackMs < SN.CONFIG.attackCooldownMs) {
             return;
         }
         p.lastAttackMs = SN.nowMs;
         p.attackUntil = SN.nowMs + SN.CONFIG.attackMs;
-        p.anim = "attack";
-        p.animStart = SN.nowMs;
         SN.state.attackId++;
         if (SN.nowMs < p.crossbowUntil) {
+            p.anim = "attack";
+            p.animStart = SN.nowMs;
             fire("bolt");
             SN.Sound.sfx.shoot();
             return;
         }
+        // On the ground next to a downed/stunned vamp? Grab it instead of swinging.
+        if (p.onGround && tryGrab()) {
+            return;
+        }
+        const airborne = !p.onGround;
+        if (SN.nowMs - p.chainAt > SN.CONFIG.chainWindowMs) {
+            p.chain = 0;
+        } // stale chain resets
+        const finisher = ((p.chain + 1) % SN.CONFIG.finisherEvery) === 0; // every Nth connected hit
+        p.anim = airborne ? "jump" : "attack";
+        p.animStart = SN.nowMs;
         const scythe = SN.nowMs < p.scytheUntil;
-        const reach = scythe ? SN.CONFIG.attackReachX * SN.CONFIG.scytheReachMult : SN.CONFIG.attackReachX;
-        const band = scythe ? SN.CONFIG.attackBandZ * 1.6 : SN.CONFIG.attackBandZ;
+        let reach = scythe ? SN.CONFIG.attackReachX * SN.CONFIG.scytheReachMult : SN.CONFIG.attackReachX;
+        let band = scythe ? SN.CONFIG.attackBandZ * 1.6 : SN.CONFIG.attackBandZ;
+        if (airborne) {
+            reach = Math.max(reach, SN.CONFIG.jumpAtkReachX);
+            band = Math.max(band, SN.CONFIG.jumpAtkBandZ);
+        } // jump attack: wider, downward
         const cx = p.x + p.facing * (reach * 0.5 + p.w * 0.5);
         let hitAny = false;
         for (const e of SN.state.enemies) {
@@ -497,8 +566,10 @@ var SN;
                 continue;
             }
             if (Math.abs(e.x - cx) < reach * 0.5 + e.w * 0.5 && Math.abs(e.z - p.z) < band && (e.x - p.x) * p.facing > -8) {
-                hitEnemy(e, SN.state.attackId, scythe);
-                hitAny = true;
+                // A finisher, jump attack, or scythe breaks a guard; a plain hit does not.
+                if (hitEnemy(e, SN.state.attackId, scythe, finisher, finisher || airborne || scythe)) {
+                    hitAny = true;
+                }
             }
         }
         if (SN.state.boss) {
@@ -509,13 +580,86 @@ var SN;
                 hitAny = true;
             }
         }
-        if (!hitAny) {
+        if (hitAny) {
+            p.chain++;
+            p.chainAt = SN.nowMs;
+            if (finisher) {
+                SN.Sound.sfx.finisher();
+                SN.state.shake = Math.max(SN.state.shake, 8);
+            }
+            if (airborne) {
+                p.vy = SN.CONFIG.jumpAtkBounce;
+                p.onGround = false;
+            } // pogo off the hit
+        }
+        else {
             SN.state.combo = 0;
+            p.chain = 0;
             SN.Sound.sfx.whiff();
             SN.updateHud();
         }
     }
     SN.tryAttack = tryAttack;
+    // ---- Grab & throw -----------------------------------------------------
+    // Grab the nearest downed/stunned vamp in front of the player; returns true if one was grabbed.
+    function tryGrab() {
+        const p = SN.state.player;
+        let best = null, bestDx = 1e9;
+        for (const e of SN.state.enemies) {
+            if (!e.alive || e.grabbed) {
+                continue;
+            }
+            const grabbable = e.phase === "down" || e.phase === "getup" || SN.nowMs < e.stunUntil;
+            if (!grabbable) {
+                continue;
+            }
+            const dx = e.x - p.x;
+            if (Math.abs(dx) < SN.CONFIG.grabRangeX + e.w * 0.5 && Math.abs(e.z - p.z) < SN.CONFIG.grabRangeZ && dx * p.facing > -10 && Math.abs(dx) < bestDx) {
+                best = e;
+                bestDx = Math.abs(dx);
+            }
+        }
+        if (!best) {
+            return false;
+        }
+        best.grabbed = true;
+        best.phase = "chase";
+        best.vx = 0;
+        best.vy = 0;
+        best.y = 0;
+        best.stunUntil = -1e9;
+        p.grabbing = best;
+        p.grabUntil = SN.nowMs + SN.CONFIG.grabHoldMs;
+        p.anim = "throw";
+        p.animStart = SN.nowMs;
+        SN.Sound.sfx.pickup();
+        return true;
+    }
+    SN.tryGrab = tryGrab;
+    function throwGrabbed() {
+        const p = SN.state.player;
+        const e = p.grabbing;
+        if (!e) {
+            return;
+        }
+        p.grabbing = null;
+        p.anim = "throw";
+        p.animStart = SN.nowMs;
+        p.lastAttackMs = SN.nowMs;
+        p.attackUntil = SN.nowMs + SN.CONFIG.attackMs;
+        e.grabbed = false;
+        e.phase = "thrown";
+        e.bounced = false;
+        e.hitBy = SN.projHitId--;
+        e.vx = p.facing * SN.CONFIG.throwSpeedX;
+        e.vy = SN.CONFIG.throwPop;
+        e.y = e.h * 0.4;
+        e.anim = "knockdown";
+        e.animStart = SN.nowMs;
+        SN.state.shake = Math.max(SN.state.shake, 6);
+        SN.Sound.sfx.shoot();
+    }
+    SN.throwGrabbed = throwGrabbed;
     function tryThrow() {
         if (!SN.state || !SN.state.running) {
             return;
@@ -538,31 +682,61 @@ var SN;
         SN.state.bolts.push({ kind, x: p.x + p.facing * 18, z: p.z, y: p.h * 0.55, vx: p.facing * speed, spin: 0, alive: true });
     }
     SN.fire = fire;
-    function knockback(e, lethal) {
+    function knockback(e, lethal, finisher = false) {
         const p = SN.state.player;
         const dirx = (Math.sign(e.x - p.x) || p.facing);
         const resist = e.type === "brute" ? 0.45 : 1;
-        e.vx = dirx * SN.CONFIG.knockImpulse * resist * (lethal ? 1.5 : 1);
-        e.vz = (e.z - p.z >= 0 ? 1 : -1) * 40 * resist;
-        e.stunUntil = SN.nowMs + SN.CONFIG.stunMs;
+        if (finisher && !lethal) {
+            // Finisher launches a surviving vamp into a knockdown (pop + arc + slide + lie + getup).
+            e.phase = "down";
+            e.phaseUntil = SN.nowMs + SN.CONFIG.downLieMs;
+            e.bounced = false;
+            e.vx = dirx * SN.CONFIG.downKnock * resist;
+            e.vy = SN.CONFIG.downPop * (e.type === "brute" ? 0.7 : 1);
+            e.vz = 0;
+            e.anim = "knockdown";
+            e.animStart = SN.nowMs;
+            e.stunUntil = -1e9;
+        }
+        else {
+            e.vx = dirx * SN.CONFIG.knockImpulse * resist * (lethal ? 1.5 : 1);
+            e.vz = (e.z - p.z >= 0 ? 1 : -1) * 40 * resist;
+            e.stunUntil = SN.nowMs + SN.CONFIG.stunMs;
+        }
     }
     SN.knockback = knockback;
-    function hitEnemy(e, attackId, lethal = false) {
+    // Returns true if the hit connected (false if a guard absorbed it — that shouldn't advance the
+    // player's combo). `breakGuard` (finisher / jump-attack / scythe) smashes through a block.
+    function hitEnemy(e, attackId, lethal = false, finisher = false, breakGuard = false) {
         e.hitBy = attackId;
-        SN.Sound.sfx.hit();
-        SN.state.hitStop = Math.max(SN.state.hitStop, SN.CONFIG.hitStopMs); // freeze-frame on impact
-        e.phase = "chase";
-        e.phaseUntil = SN.nowMs + 220; // a hit cancels their swing
+        if (e.phase === "block" && !breakGuard) {
+            // Guarded: no damage, a spark, and a little shove for both.
+            const dirx = Math.sign(e.x - SN.state.player.x) || SN.state.player.facing;
+            e.x += dirx * 6;
+            e.phaseUntil = Math.max(e.phaseUntil, SN.nowMs + 120);
+            spawnDust(e.x - dirx * e.w * 0.4, SN.feetY(e.z, 0) - e.h * 0.6, 4, "#cfe8ff");
+            SN.Sound.sfx.whiff();
+            return false;
+        }
+        SN.Sound.sfx.hit(); // connects (incl. a broken guard)
+        SN.state.hitStop = Math.max(SN.state.hitStop, finisher ? SN.CONFIG.finisherHitStopMs : SN.CONFIG.hitStopMs);
+        if (e.phase === "windup" || e.phase === "active" || e.phase === "recover" || e.phase === "block") {
+            e.phase = "chase";
+            e.phaseUntil = SN.nowMs + 220;
+        }
         if (lethal) {
             e.hp = 1;
         }
         e.hp--;
-        knockback(e, e.hp <= 0);
-        if (e.hp > 0) {
-            spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 6, "#8a6a9a");
-            e.anim = "hurt";
-            e.animStart = SN.nowMs;
-            return;
+        const dead = e.hp <= 0;
+        knockback(e, dead, finisher);
+        if (!dead) {
+            if (e.phase !== "down") {
+                spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 6, "#8a6a9a");
+                e.anim = "hurt";
+                e.animStart = SN.nowMs;
+            }
+            return true;
         }
         e.alive = false;
         SN.state.defeatedThisStage++;
@@ -573,6 +747,7 @@ var SN;
         spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 16, "#c9b8d6");
         spawnPopup(e.x, SN.feetY(e.z, 0) - e.h, "+" + gained);
         SN.updateHud();
+        return true;
     }
     SN.hitEnemy = hitEnemy;
     function damageBoss(n) {
@@ -605,18 +780,30 @@ var SN;
         if (SN.nowMs < p.hurtUntil) {
             return;
         } // still invulnerable from the last hit
+        const heavy = power >= SN.CONFIG.heavyHitKnock; // brute / boss / thrown body → knockdown
         p.hurtUntil = SN.nowMs + SN.CONFIG.iframesMs;
-        p.hitstunUntil = SN.nowMs + SN.CONFIG.hitstunMs;
+        p.hitstunUntil = SN.nowMs + (heavy ? SN.CONFIG.knockdownMs : SN.CONFIG.hitstunMs);
         p.lives--;
         SN.state.combo = 0;
+        p.chain = 0;
+        SN.state.tookDamageThisStage = true;
+        if (p.grabbing) {
+            p.grabbing.grabbed = false;
+            p.grabbing.phase = "chase";
+            p.grabbing = null;
+        } // drop the grab
         const dirX = srcX != null ? (Math.sign(p.x - srcX) || -p.facing) : -p.facing;
         p.knockVx = dirX * power;
         p.knockVz = srcZ != null ? (Math.sign(p.z - srcZ) || 0) * power * 0.4 : 0;
-        p.anim = "hurt";
+        if (heavy) {
+            p.vy = SN.CONFIG.throwPop;
+            p.onGround = false;
+        } // a little pop sells the knockdown
+        p.anim = heavy ? "knockdown" : "hurt";
         p.animStart = SN.nowMs;
-        SN.state.flash = Math.max(SN.state.flash, 0.4);
-        SN.state.shake = Math.max(SN.state.shake, 9);
-        SN.state.hitStop = Math.max(SN.state.hitStop, SN.CONFIG.hitStopMs);
+        SN.state.flash = Math.max(SN.state.flash, heavy ? 0.55 : 0.4);
+        SN.state.shake = Math.max(SN.state.shake, heavy ? 13 : 9);
+        SN.state.hitStop = Math.max(SN.state.hitStop, heavy ? 90 : SN.CONFIG.hitStopMs);
         SN.Sound.sfx.hurt();
         SN.updateHud();
         if (p.lives <= 0) {
@@ -666,6 +853,22 @@ var SN;
  */
 var SN;
 (function (SN) {
+    // ---- Wave gating ------------------------------------------------------
+    // A combat stage is split into arenas: the camera locks, a wave of vamps spawns, and the
+    // player can't push east until it's cleared. Falls back to a single wave of `quota`.
+    function effectiveWaves(s) { return (s.waves && s.waves.length) ? s.waves : [s.quota]; }
+    SN.effectiveWaves = effectiveWaves;
+    function waveCumQuota(s, i) { const w = effectiveWaves(s); let n = 0; for (let k = 0; k <= i && k < w.length; k++) {
+        n += w[k];
+    } return n; }
+    SN.waveCumQuota = waveCumQuota;
+    function startWave(i) {
+        SN.state.waveIndex = i;
+        SN.state.arenaLocked = true;
+        SN.state.arenaLockX = SN.state.camX;
+        SN.state.spawnTimer = 400;
+    }
+    SN.startWave = startWave;
     function update(dt) {
         SN.state.elapsed += dt * 1000;
         const p = SN.state.player;
@@ -707,16 +910,29 @@ var SN;
             p.onGround = true;
             p.lastGroundMs = SN.nowMs;
         }
-        if (SN.nowMs >= p.attackUntil) {
-            const want = SN.nowMs < p.hurtUntil ? "hurt" : (p.moving ? "walk" : "idle");
+        // While an arena is locked, the player can't walk off the right (or left) of the screen.
+        if (SN.state.arenaLocked) {
+            const margin = p.w * 1.2;
+            p.x = Math.max(SN.state.arenaLockX + margin, Math.min(SN.state.arenaLockX + SN.viewW - margin, p.x));
+        }
+        // Animation: attack holds until attackUntil; hurt/knockdown holds through hitstun (set by
+        // hurtPlayer); otherwise resolve to walk/idle.
+        if (SN.nowMs >= p.attackUntil && SN.nowMs >= p.hitstunUntil) {
+            const want = p.moving ? "walk" : "idle";
             if (p.anim !== want) {
                 p.anim = want;
                 p.animStart = SN.nowMs;
             }
         }
-        SN.state.camX += (p.x - SN.viewW * 0.5 - SN.state.camX) * Math.min(1, SN.CONFIG.camLerp * dt);
-        // Spawn toward this stage's quota (combat stages only).
-        if (SN.state.phase === "playing" && !SN.stage().boss && SN.state.spawnedThisStage < SN.stage().quota) {
+        // Camera holds at the lock line while an arena is active, else follows the player east.
+        if (SN.state.arenaLocked) {
+            SN.state.camX += (SN.state.arenaLockX - SN.state.camX) * Math.min(1, SN.CONFIG.camLerp * dt);
+        }
+        else {
+            SN.state.camX += (p.x - SN.viewW * 0.5 - SN.state.camX) * Math.min(1, SN.CONFIG.camLerp * dt);
+        }
+        // Spawn the current wave's vamps (only while its arena is locked).
+        if (SN.state.phase === "playing" && !SN.stage().boss && SN.state.arenaLocked && SN.state.spawnedThisStage < waveCumQuota(SN.stage(), SN.state.waveIndex)) {
             SN.state.spawnTimer -= dt * 1000;
             if (SN.state.spawnTimer <= 0) {
                 SN.spawnEnemy();
@@ -728,9 +944,9 @@ var SN;
             SN.spawnPickup();
             SN.state.pickupTimer = SN.CONFIG.pickupEveryMs;
         }
-        // Enemies: knockback while stunned, else run the attack state machine — chase to a
-        // standoff distance, telegraph a wind-up, strike, recover. Touching the player never
-        // damages; only a landed strike does, and the wind-up is a real window to dodge.
+        // Enemies: grabbed bodies and knockdown/thrown arcs first, else the attack state machine —
+        // chase to standoff, telegraph a wind-up, strike, recover; capable vamps may raise a guard.
+        // Touching the player never damages; only a landed strike does (the wind-up is a dodge window).
         let attackers = 0;
         for (const e of SN.state.enemies) {
             if (e.alive && (e.phase === "windup" || e.phase === "active")) {
@@ -739,6 +955,26 @@ var SN;
         }
         for (const e of SN.state.enemies) {
             if (!e.alive) {
+                continue;
+            }
+            if (e.grabbed) { // held just in front of the player until thrown or the hold lapses
+                const hold = p.x + p.facing * (p.w * 0.5 + e.w * 0.5 + 4);
+                e.x += (hold - e.x) * Math.min(1, 18 * dt);
+                e.z = p.z;
+                e.y = e.h * 0.25;
+                e.wobble += dt * 4;
+                if (SN.nowMs >= p.grabUntil) {
+                    e.grabbed = false;
+                    e.phase = "chase";
+                    e.y = 0;
+                    if (p.grabbing === e) {
+                        p.grabbing = null;
+                    }
+                }
+                continue;
+            }
+            if (e.phase === "down" || e.phase === "getup" || e.phase === "thrown") {
+                updateDownedEnemy(e, dt);
                 continue;
             }
             if (SN.nowMs < e.stunUntil) {
@@ -753,9 +989,20 @@ var SN;
             const dx = p.x - e.x, dz = p.z - e.z;
             const adx = Math.abs(dx), adz = Math.abs(dz);
             e.wobble += dt * 6;
-            if (e.phase === "chase") {
+            if (e.phase === "block") {
+                if (SN.nowMs >= e.phaseUntil) {
+                    e.phase = "chase";
+                }
+            }
+            else if (e.phase === "chase") {
                 const aligned = adx < SN.CONFIG.enemyAttackRangeX && adz < SN.CONFIG.enemyAttackBandZ;
-                if (aligned && SN.nowMs > e.phaseUntil && attackers < SN.CONFIG.maxAttackers) {
+                if (e.def.guard > 0 && aligned && SN.nowMs > e.phaseUntil && Math.random() < e.def.guard * dt * 1.2) {
+                    e.phase = "block";
+                    e.phaseUntil = SN.nowMs + SN.CONFIG.guardHoldMs;
+                    e.anim = "block";
+                    e.animStart = SN.nowMs; // raise a guard
+                }
+                else if (aligned && SN.nowMs > e.phaseUntil && attackers < SN.CONFIG.maxAttackers) {
                     e.phase = "windup";
                     e.phaseUntil = SN.nowMs + e.def.windup;
                     attackers++;
@@ -806,9 +1053,9 @@ var SN;
                 }
             }
         }
-        // Gentle separation along z so vamps fan out instead of stacking (skip stunned/striking).
+        // Gentle separation along z so vamps fan out instead of stacking (skip busy/airborne ones).
         for (const e of SN.state.enemies) {
-            if (!e.alive || SN.nowMs < e.stunUntil || e.phase === "windup" || e.phase === "active") {
+            if (!e.alive || e.grabbed || SN.nowMs < e.stunUntil || e.phase === "windup" || e.phase === "active" || e.phase === "down" || e.phase === "getup" || e.phase === "thrown") {
                 continue;
             }
             for (const o of SN.state.enemies) {
@@ -884,18 +1131,126 @@ var SN;
             p._wasPower = false;
             SN.updateHud();
         }
-        // --- Stage flow: clear → open exit; walk east → next stage ---
-        if (SN.state.phase === "playing" && !SN.stage().boss && SN.state.defeatedThisStage >= SN.stage().quota && SN.state.enemies.length === 0 && !SN.state.exitOpen) {
-            SN.state.exitOpen = true;
-            SN.state.exitX = p.x + SN.CONFIG.exitWalk;
-            SN.state.banner = { text: "Cleared — head east →", until: SN.nowMs + 4000 };
-            SN.state.phase = "cleared";
+        // --- Stage flow: wave gating → clear arena → push east to the next wave → exit ---
+        const s = SN.stage();
+        if (SN.state.phase === "playing" && !s.boss) {
+            const waveTarget = waveCumQuota(s, SN.state.waveIndex);
+            const last = SN.state.waveIndex >= effectiveWaves(s).length - 1;
+            const cleared = SN.state.defeatedThisStage >= waveTarget && SN.state.enemies.length === 0;
+            if (SN.state.arenaLocked && cleared) {
+                if (last) {
+                    SN.state.exitOpen = true;
+                    SN.state.exitX = p.x + SN.CONFIG.exitWalk;
+                    SN.state.arenaLocked = false;
+                    if (!SN.state.tookDamageThisStage) {
+                        SN.state.score += SN.CONFIG.flawlessBonus;
+                        SN.spawnPopup(p.x, SN.feetY(p.z, 0) - p.h - 16, "FLAWLESS +" + SN.CONFIG.flawlessBonus);
+                        SN.state.banner = { text: "FLAWLESS!  +" + SN.CONFIG.flawlessBonus + " — head east →", until: SN.nowMs + 4500 };
+                        SN.Sound.sfx.levelup();
+                    }
+                    else {
+                        SN.state.banner = { text: "Cleared — head east →", until: SN.nowMs + 4000 };
+                    }
+                    SN.state.phase = "cleared";
+                    SN.updateHud();
+                }
+                else {
+                    SN.state.arenaLocked = false;
+                    SN.state.nextWaveAtX = SN.state.arenaLockX + SN.viewW * 0.72;
+                    SN.state.banner = { text: "Wave clear — push east →", until: SN.nowMs + 3000 };
+                    SN.updateHud();
+                }
+            }
+            else if (!SN.state.arenaLocked && !SN.state.exitOpen && SN.state.defeatedThisStage >= waveTarget && p.x >= SN.state.nextWaveAtX) {
+                startWave(SN.state.waveIndex + 1);
+                SN.state.banner = { text: "Wave " + (SN.state.waveIndex + 1) + " of " + effectiveWaves(s).length, until: SN.nowMs + 1800 };
+                SN.Sound.sfx.stage();
+                SN.updateHud();
+            }
         }
         if (SN.state.phase === "cleared" && p.x >= SN.state.exitX) {
             SN.advanceStage();
         }
     }
     SN.update = update;
+    // A knocked-down or thrown vamp: arc under gravity, slide, bounce off screen edges; a thrown
+    // body ploughs through other vamps (knocking them down too). Settles into "down" → "getup" → chase.
+    function updateDownedEnemy(e, dt) {
+        e.x += e.vx * dt;
+        e.vy -= SN.CONFIG.gravity * dt;
+        e.y = e.y + e.vy * dt;
+        const grounded = e.y <= 0;
+        if (grounded) {
+            e.y = 0;
+            e.vy = 0;
+            const gf = Math.min(1, SN.CONFIG.downGroundFriction * dt);
+            e.vx -= e.vx * gf;
+        }
+        else {
+            const af = Math.min(1, SN.CONFIG.downAirDrag * dt);
+            e.vx -= e.vx * af;
+        }
+        e.z = Math.max(0, Math.min(SN.floorDepth(), e.z));
+        wallBounce(e);
+        if (e.phase === "thrown") {
+            for (const o of SN.state.enemies) {
+                if (o === e || !o.alive || o.grabbed || o.phase === "thrown") {
+                    continue;
+                }
+                if (Math.abs(o.x - e.x) < (o.w + e.w) * 0.5 && Math.abs(o.z - e.z) < 22) {
+                    SN.hitEnemy(o, SN.projHitId--, false, true, true);
+                }
+            }
+            if (SN.state.boss && Math.abs(SN.state.boss.x - e.x) < (SN.state.boss.w + e.w) * 0.5 && Math.abs(SN.state.boss.z - e.z) < 26) {
+                SN.damageBoss(SN.CONFIG.throwDamage);
+                e.bounced = true;
+            }
+            if (grounded && Math.abs(e.vx) < 40) {
+                e.phase = "down";
+                e.phaseUntil = SN.nowMs + SN.CONFIG.downLieMs;
+            }
+            return;
+        }
+        if (e.phase === "down" && grounded && SN.nowMs >= e.phaseUntil && Math.abs(e.vx) < 28) {
+            e.phase = "getup";
+            e.phaseUntil = SN.nowMs + SN.CONFIG.getupMs;
+            e.anim = "knockdown";
+            e.animStart = SN.nowMs;
+        }
+        else if (e.phase === "getup" && SN.nowMs >= e.phaseUntil) {
+            e.phase = "chase";
+            e.stunUntil = -1e9;
+        }
+    }
+    SN.updateDownedEnemy = updateDownedEnemy;
+    // Reflect a knocked-down/thrown vamp off the camera's screen edges — once per knockdown — for a
+    // splash of bonus damage. Classic "bounce them off the wall" payoff.
+    function wallBounce(e) {
+        if (e.bounced) {
+            return;
+        }
+        const leftEdge = SN.state.camX + e.w * 0.5, rightEdge = SN.state.camX + SN.viewW - e.w * 0.5;
+        if ((e.x < leftEdge && e.vx < 0) || (e.x > rightEdge && e.vx > 0)) {
+            e.x = Math.max(leftEdge, Math.min(rightEdge, e.x));
+            e.vx = -e.vx * SN.CONFIG.wallBounceVx;
+            e.bounced = true;
+            SN.spawnDust(e.x, SN.feetY(e.z, e.y) - e.h * 0.4, 10, "#cfe8ff");
+            SN.state.shake = Math.max(SN.state.shake, 6);
+            SN.Sound.sfx.hit();
+            e.hp -= SN.CONFIG.wallBounceDamage;
+            if (e.hp <= 0) {
+                e.alive = false;
+                SN.state.defeatedThisStage++;
+                SN.state.combo++;
+                SN.state.bestCombo = Math.max(SN.state.bestCombo, SN.state.combo);
+                SN.state.score += Math.round(e.def.points * 0.6);
+                SN.spawnPopup(e.x, SN.feetY(e.z, 0) - e.h, "WALL!");
+                SN.spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 16, "#c9b8d6");
+                SN.updateHud();
+            }
+        }
+    }
+    SN.wallBounce = wallBounce;
     function updateBoss(dt) {
         const b = SN.state.boss;
         if (!b) {
@@ -932,6 +1287,35 @@ var SN;
  */
 var SN;
 (function (SN) {
+    // Draw the stage's painted parallax layers (sky → mid → near), each tiled and scrolled by its
+    // parallax factor. Returns false if the stage has no bg or its layers aren't all loaded yet.
+    function drawBgLayers() {
+        const s = SN.stage();
+        if (!s.bg) {
+            return false;
+        }
+        const set = SN.loadBg(s.bg);
+        if (!set.sky.ready || !set.mid.ready || !set.near.ready) {
+            return false;
+        }
+        drawBgLayer(set.sky);
+        drawBgLayer(set.mid);
+        drawBgLayer(set.near);
+        return true;
+    }
+    SN.drawBgLayers = drawBgLayers;
+    function drawBgLayer(L) {
+        const img = L.img;
+        if (!img) {
+            return;
+        }
+        const scale = SN.viewH / img.height;
+        const w = Math.max(1, img.width * scale);
+        let x = -(((SN.state.camX * L.par) % w + w) % w); // seamless horizontal tiling
+        for (; x < SN.viewW; x += w) {
+            SN.ctx.drawImage(img, 0, 0, img.width, img.height, x, 0, w, SN.viewH);
+        }
+    }
     function render() {
         const ftY = SN.floorTopY();
         const pal = SN.stage().palette;
@@ -940,50 +1324,53 @@ var SN;
         const shy = SN.state.shake > 0 ? (Math.random() * 2 - 1) * SN.state.shake : 0;
         SN.ctx.save();
         SN.ctx.translate(shx, shy);
-        const sky = SN.ctx.createLinearGradient(0, 0, 0, ftY);
-        sky.addColorStop(0, pal.sky0);
-        sky.addColorStop(1, pal.sky1);
-        SN.ctx.fillStyle = sky;
-        SN.ctx.fillRect(-OS, -OS, SN.viewW + OS * 2, ftY + OS);
-        for (const s of SN.state.stars) {
-            const px = ((s.x - SN.state.camX * s.par) % SN.viewW + SN.viewW) % SN.viewW;
-            SN.ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw + SN.nowMs / 600));
-            SN.ctx.fillStyle = "#fdf6d8";
+        // Painted parallax layers if this stage's PNGs are loaded; otherwise the procedural scene.
+        if (!drawBgLayers()) {
+            const sky = SN.ctx.createLinearGradient(0, 0, 0, ftY);
+            sky.addColorStop(0, pal.sky0);
+            sky.addColorStop(1, pal.sky1);
+            SN.ctx.fillStyle = sky;
+            SN.ctx.fillRect(-OS, -OS, SN.viewW + OS * 2, ftY + OS);
+            for (const s of SN.state.stars) {
+                const px = ((s.x - SN.state.camX * s.par) % SN.viewW + SN.viewW) % SN.viewW;
+                SN.ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw + SN.nowMs / 600));
+                SN.ctx.fillStyle = "#fdf6d8";
+                SN.ctx.beginPath();
+                SN.ctx.arc(px, s.y, s.r, 0, Math.PI * 2);
+                SN.ctx.fill();
+            }
+            SN.ctx.globalAlpha = 1;
+            SN.ctx.fillStyle = "#f4ecc6";
             SN.ctx.beginPath();
-            SN.ctx.arc(px, s.y, s.r, 0, Math.PI * 2);
+            SN.ctx.arc(SN.viewW * 0.8, ftY * 0.26, 34, 0, Math.PI * 2);
             SN.ctx.fill();
-        }
-        SN.ctx.globalAlpha = 1;
-        SN.ctx.fillStyle = "#f4ecc6";
-        SN.ctx.beginPath();
-        SN.ctx.arc(SN.viewW * 0.8, ftY * 0.26, 34, 0, Math.PI * 2);
-        SN.ctx.fill();
-        SN.ctx.fillStyle = "rgba(11,10,20,0.55)";
-        SN.ctx.beginPath();
-        SN.ctx.arc(SN.viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2);
-        SN.ctx.fill();
-        SN.ctx.fillStyle = pal.grave;
-        for (const g of SN.state.graves) {
-            const gx = g.x - SN.state.camX * g.par;
-            const px = ((gx % (SN.viewW + 400)) + (SN.viewW + 400)) % (SN.viewW + 400) - 200;
+            SN.ctx.fillStyle = "rgba(11,10,20,0.55)";
             SN.ctx.beginPath();
-            SN.ctx.moveTo(px - g.w / 2, ftY);
-            SN.ctx.lineTo(px - g.w / 2, ftY - g.h * 0.55);
-            SN.ctx.arc(px, ftY - g.h * 0.55, g.w / 2, Math.PI, 0);
-            SN.ctx.lineTo(px + g.w / 2, ftY);
-            SN.ctx.closePath();
+            SN.ctx.arc(SN.viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2);
             SN.ctx.fill();
+            SN.ctx.fillStyle = pal.grave;
+            for (const g of SN.state.graves) {
+                const gx = g.x - SN.state.camX * g.par;
+                const px = ((gx % (SN.viewW + 400)) + (SN.viewW + 400)) % (SN.viewW + 400) - 200;
+                SN.ctx.beginPath();
+                SN.ctx.moveTo(px - g.w / 2, ftY);
+                SN.ctx.lineTo(px - g.w / 2, ftY - g.h * 0.55);
+                SN.ctx.arc(px, ftY - g.h * 0.55, g.w / 2, Math.PI, 0);
+                SN.ctx.lineTo(px + g.w / 2, ftY);
+                SN.ctx.closePath();
+                SN.ctx.fill();
+            }
+            const floor = SN.ctx.createLinearGradient(0, ftY, 0, ftY + SN.floorDepth());
+            floor.addColorStop(0, pal.floor0);
+            floor.addColorStop(1, pal.floor1);
+            SN.ctx.fillStyle = floor;
+            SN.ctx.fillRect(-OS, ftY, SN.viewW + OS * 2, SN.floorDepth() + OS);
+            SN.ctx.strokeStyle = "rgba(255,255,255,0.06)";
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(0, ftY);
+            SN.ctx.lineTo(SN.viewW, ftY);
+            SN.ctx.stroke();
         }
-        const floor = SN.ctx.createLinearGradient(0, ftY, 0, ftY + SN.floorDepth());
-        floor.addColorStop(0, pal.floor0);
-        floor.addColorStop(1, pal.floor1);
-        SN.ctx.fillStyle = floor;
-        SN.ctx.fillRect(-OS, ftY, SN.viewW + OS * 2, SN.floorDepth() + OS);
-        SN.ctx.strokeStyle = "rgba(255,255,255,0.06)";
-        SN.ctx.beginPath();
-        SN.ctx.moveTo(0, ftY);
-        SN.ctx.lineTo(SN.viewW, ftY);
-        SN.ctx.stroke();
         SN.ctx.fillStyle = "rgba(0,0,0,0.28)";
         const shadow = (x, z, w) => { SN.ctx.beginPath(); SN.ctx.ellipse(SN.sx(x), SN.groundY(z), w * 0.5, w * 0.22, 0, 0, Math.PI * 2); SN.ctx.fill(); };
         for (const e of SN.state.enemies) {
@@ -1163,10 +1550,22 @@ var SN;
         }
         const winding = e.phase === "windup";
         const striking = e.phase === "active";
-        const bob = Math.sin(e.wobble) * 3;
+        const blocking = e.phase === "block";
+        const thrown = e.phase === "thrown";
+        const downed = e.phase === "down" || e.phase === "getup";
+        const bob = (winding || striking || blocking || downed || thrown) ? 0 : Math.sin(e.wobble) * 3;
         const lean = (winding ? -4 : striking ? 6 : 0) * facing; // cock back, then lunge in
         SN.ctx.save();
         SN.ctx.translate(fx + lean, fy + bob);
+        if (thrown) {
+            SN.ctx.rotate(e.wobble * 3);
+        } // tumbling through the air
+        else if (e.phase === "down") {
+            SN.ctx.rotate(facing * 1.3);
+        } // flat on the ground
+        else if (e.phase === "getup") {
+            SN.ctx.rotate(facing * 0.6);
+        } // rising back up
         // Wind-up telegraph: a pulsing red aura + glowing eyes so the strike is readable/dodgeable.
         if (winding) {
             SN.ctx.globalAlpha = 0.3 + 0.35 * Math.abs(Math.sin(SN.nowMs / 60));
@@ -1187,18 +1586,37 @@ var SN;
         SN.ctx.fillStyle = winding ? "#ffd23b" : "#ff3b3b";
         SN.ctx.fillRect(-5, -e.h + 6, 3, 3);
         SN.ctx.fillRect(2, -e.h + 6, 3, 3);
-        // Claw arm: drawn cocked back on the wind-up, slashing forward on the strike frame.
-        const reach = striking ? 22 : winding ? -6 : 8;
-        SN.ctx.save();
-        SN.ctx.scale(facing, 1);
-        SN.ctx.strokeStyle = striking ? "#ff6b6b" : "#cdbcd6";
-        SN.ctx.lineWidth = 4;
-        SN.ctx.beginPath();
-        SN.ctx.moveTo(e.w * 0.28, -e.h * 0.6);
-        SN.ctx.lineTo(e.w * 0.28 + reach, -e.h * 0.6 + (striking ? 6 : 0));
-        SN.ctx.stroke();
-        SN.ctx.restore();
-        if (e.hp < e.def.hp) {
+        if (blocking) {
+            // Guard: a bluish forearm bracket raised in front — needs a finisher/jump/scythe to break.
+            SN.ctx.save();
+            SN.ctx.scale(facing, 1);
+            SN.ctx.strokeStyle = "#bfe3ff";
+            SN.ctx.lineWidth = 5;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(e.w * 0.16, -e.h * 0.78);
+            SN.ctx.lineTo(e.w * 0.16, -e.h * 0.28);
+            SN.ctx.stroke();
+            SN.ctx.globalAlpha = 0.5;
+            SN.ctx.beginPath();
+            SN.ctx.arc(e.w * 0.16, -e.h * 0.5, 5, 0, Math.PI * 2);
+            SN.ctx.stroke();
+            SN.ctx.globalAlpha = 1;
+            SN.ctx.restore();
+        }
+        else if (!downed && !thrown) {
+            // Claw arm: cocked back on the wind-up, slashing forward on the strike frame.
+            const reach = striking ? 22 : winding ? -6 : 8;
+            SN.ctx.save();
+            SN.ctx.scale(facing, 1);
+            SN.ctx.strokeStyle = striking ? "#ff6b6b" : "#cdbcd6";
+            SN.ctx.lineWidth = 4;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(e.w * 0.28, -e.h * 0.6);
+            SN.ctx.lineTo(e.w * 0.28 + reach, -e.h * 0.6 + (striking ? 6 : 0));
+            SN.ctx.stroke();
+            SN.ctx.restore();
+        }
+        if (e.hp < e.def.hp && !downed && !thrown) {
             SN.ctx.fillStyle = "#7a2233";
             SN.ctx.fillRect(-e.w / 2, -e.h + 2, e.w * (e.hp / e.def.hp), 3);
         }
@@ -1312,9 +1730,11 @@ var SN;
         }
         if (SN.hudStage) {
             const s = SN.stage();
+            const waves = SN.effectiveWaves(s);
+            const waveTag = waves.length > 1 ? "  ·  Wave " + (SN.state.waveIndex + 1) + "/" + waves.length : "";
             SN.hudStage.textContent = s.boss ? s.name + " — BOSS"
                 : SN.state.phase === "cleared" ? s.name + " — CLEAR →"
-                    : s.name + "  " + Math.min(SN.state.defeatedThisStage, s.quota) + "/" + s.quota;
+                    : s.name + "  " + Math.min(SN.state.defeatedThisStage, s.quota) + "/" + s.quota + waveTag;
         }
         if (SN.bossBar) {
             if (SN.state.boss) {
@@ -1415,6 +1835,10 @@ var SN;
         SN.state.defeatedThisStage = 0;
         SN.state.exitOpen = false;
         SN.state.bossSpawned = false;
+        SN.state.tookDamageThisStage = false;
+        SN.state.player.grabbing = null;
+        SN.state.waveIndex = 0;
+        SN.state.arenaLocked = false;
         SN.state.enemies = [];
         SN.state.bolts = [];
         SN.state.pickups = [];
@@ -1437,6 +1861,9 @@ var SN;
         if (s.boss) {
             SN.spawnBoss();
         }
+        else {
+            SN.startWave(0);
+        }
         SN.state.banner = { text: s.name, until: SN.nowMs + 2200 };
         SN.Sound.sfx.stage();
         if (SN.controls) {
@@ -1449,7 +1876,35 @@ var SN;
         SN.rafId = requestAnimationFrame(frame);
     }
     SN.beginStage = beginStage;
+    // Best-effort: enter fullscreen + lock to landscape (works on Android Chrome; iOS Safari can't
+    // lock, so the CSS #rotate-hint covers portrait there). Called from the Start tap — a user
+    // gesture, which fullscreen requires. All failures are silent.
+    function goLandscape() {
+        const root = (document.getElementById("game-root") || document.documentElement);
+        try {
+            const req = root.requestFullscreen || root.webkitRequestFullscreen;
+            if (req && !document.fullscreenElement) {
+                const r = req.call(root);
+                if (r && r.catch) {
+                    r.catch(() => { });
+                }
+            }
+        }
+        catch { /* no fullscreen */ }
+        try {
+            const o = screen.orientation;
+            if (o && o.lock) {
+                const r = o.lock("landscape");
+                if (r && r.catch) {
+                    r.catch(() => { });
+                }
+            }
+        }
+        catch { /* unsupported */ }
+    }
+    SN.goLandscape = goLandscape;
     function startGame() {
+        goLandscape();
         SN.resize();
         SN.Sound.resume();
         SN.Sound.startMusic();

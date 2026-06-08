@@ -20,7 +20,7 @@ namespace SN {
             running: false, phase: "playing", score: 0, combo: 0, bestCombo: 0, elapsed: 0,
             stageIndex: 0, spawnedThisStage: 0, defeatedThisStage: 0,
             exitOpen: false, exitX: 0, bossSpawned: false, victory: false,
-            tookDamageThisStage: false, arenaLocked: false, arenaMaxX: 0, waveIndex: 0,
+            tookDamageThisStage: false, arenaLocked: false, arenaLockX: 0, nextWaveAtX: 0, waveIndex: 0,
             spawnTimer: 700, pickupTimer: CONFIG.pickupEveryMs, camX: 0, attackId: 0, flash: 0, hitStop: 0,
             player: freshPlayer(), enemies: [], pickups: [], bolts: [], dust: [], stars: [], graves: [],
             boss: null, popups: [], banner: null, shake: 0, runToken: null,

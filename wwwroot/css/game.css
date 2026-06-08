@@ -44,6 +44,40 @@ html, body {
     display: block;
 }
 
+/* ---- Rotate-to-landscape nudge ----
+   The game is built for a wide (landscape) view. On Android we also try to lock orientation in
+   JS on start; iOS can't be locked, so this overlay covers the game in portrait on touch devices
+   and asks the player to turn the phone. It disappears the moment the device is landscape. */
+#rotate-hint {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    text-align: center;
+    background: var(--night);
+    color: var(--ink);
+}
+#rotate-hint .rot-icon {
+    font-size: 64px;
+    line-height: 1;
+    animation: rot-tip 1.8s ease-in-out infinite;
+    transform-origin: 50% 50%;
+}
+#rotate-hint p { margin: 0; font-size: 20px; color: var(--gold); }
+#rotate-hint small { color: var(--muted); font-size: 14px; }
+@keyframes rot-tip {
+    0%, 40% { transform: rotate(0deg); }
+    70%, 100% { transform: rotate(-90deg); }
+}
+@media (orientation: portrait) and (pointer: coarse) {
+    #rotate-hint { display: flex; }
+}
+
 /* ---- HUD ---- */
 .hud {
     position: absolute;

@@ -14,6 +14,28 @@ namespace SN {
         }
     }
 
+    // ---- Background layers ------------------------------------------------
+    // Per-stage parallax PNGs at /img/bg_<prefix>_{sky,mid,near}.png. Until they exist the layers
+    // stay un-ready and render() falls back to the procedural palette. See SPRITES.md §2.
+    export const bgSets: Record<string, BgSet> = {};
+    function bgLayer(src: string, par: number): BgLayer {
+        const L: BgLayer = { img: null, ready: false, par };
+        if (typeof Image !== "undefined") {
+            try { const img = new Image(); img.onload = () => { L.img = img; L.ready = true; }; img.onerror = () => { L.ready = false; }; img.src = src; } catch { /* ignore */ }
+        }
+        return L;
+    }
+    export function loadBg(prefix: string): BgSet {
+        if (bgSets[prefix]) { return bgSets[prefix]; }
+        const set: BgSet = {
+            sky: bgLayer("/img/bg_" + prefix + "_sky.png", CONFIG.bgPar.sky),
+            mid: bgLayer("/img/bg_" + prefix + "_mid.png", CONFIG.bgPar.mid),
+            near: bgLayer("/img/bg_" + prefix + "_near.png", CONFIG.bgPar.near),
+        };
+        bgSets[prefix] = set;
+        return set;
+    }
+
     export function drawSheet(kind: string, anim: string, animStart: number, fxp: number, fyp: number, facing: number): boolean {
         const stt = sheets[kind];
         if (!stt || !stt.ready || !stt.img) { return false; }

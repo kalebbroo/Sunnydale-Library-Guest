@@ -60,7 +60,7 @@ namespace SN {
         stageIndex: number; spawnedThisStage: number; defeatedThisStage: number;
         exitOpen: boolean; exitX: number; bossSpawned: boolean; victory: boolean;
         tookDamageThisStage: boolean;                 // cleared without it → Flawless bonus
-        arenaLocked: boolean; arenaMaxX: number; waveIndex: number;   // wave-gating (camera lock)
+        arenaLocked: boolean; arenaLockX: number; nextWaveAtX: number; waveIndex: number;   // wave-gating (camera lock)
         spawnTimer: number; pickupTimer: number; camX: number; attackId: number; flash: number; hitStop: number;
         player: Player;
         enemies: Enemy[]; pickups: Pickup[]; bolts: Bolt[]; dust: Dust[];
@@ -77,6 +77,10 @@ namespace SN {
     export interface AnimDef { row: number; frames: number; fps: number; loop: boolean; }
     export interface SheetDef { src: string; fw: number; fh: number; scale: number; anims: Record<string, AnimDef>; smooth?: boolean; }
     export interface SheetState { def: SheetDef; img: HTMLImageElement | null; ready: boolean; }
+
+    // ---- Background parallax layers (see SPRITES.md §2) --------------------
+    export interface BgLayer { img: HTMLImageElement | null; ready: boolean; par: number; }
+    export interface BgSet { sky: BgLayer; mid: BgLayer; near: BgLayer; }
 
     // ---- Leaderboard ------------------------------------------------------
     export type Row = { rank: number; initials: string; score: number };

@@ -37,6 +37,7 @@ namespace SN {
         // Enemy guard: chance a capable vamp raises a block when the player winds up an attack.
         guardHoldMs: 520,
         flawlessBonus: 1500,           // cleared a stage without taking a hit
+        bgPar: { sky: 0.15, mid: 0.45, near: 1.0 },   // parallax factors for painted bg layers
         exitWalk: 440,                 // how far east to walk through an opened exit
     };
 
@@ -50,15 +51,15 @@ namespace SN {
 
     // ---- Stages (data-driven scenes; last one is the boss) ----------------
     export const STAGES: Stage[] = [
-        { name: "Restfield Cemetery", quota: 6, palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
+        { name: "Restfield Cemetery", quota: 6, waves: [3, 3], bg: "cemetery", palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
           story: "Patrol's on. The dead don't rest in Sunnydale — clear the fledglings prowling Restfield." },
-        { name: "The Crypt", quota: 8, palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
+        { name: "The Crypt", quota: 8, waves: [4, 4], bg: "crypt", palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
           story: "Down into the crypt. Colder here, and something's been feeding well." },
-        { name: "Sunnydale High Halls", quota: 10, levelUp: true, palette: { sky0: "#14100a", sky1: "#2a2014", floor0: "#3a2f1f", floor1: "#1a140c", grave: "#241a10" },
+        { name: "Sunnydale High Halls", quota: 10, waves: [3, 3, 4], bg: "halls", levelUp: true, palette: { sky0: "#14100a", sky1: "#2a2014", floor0: "#3a2f1f", floor1: "#1a140c", grave: "#241a10" },
           story: "Back at school after dark. Giles stocked your locker — a brace of throwing stakes.\nLEVEL UP: press THROW (L) to hurl a stake!" },
-        { name: "The Library", quota: 12, palette: { sky0: "#0e0a14", sky1: "#241a30", floor0: "#2e2640", floor1: "#16101f", grave: "#1a1428" },
+        { name: "The Library", quota: 12, waves: [4, 4, 4], bg: "library", palette: { sky0: "#0e0a14", sky1: "#241a30", floor0: "#2e2640", floor1: "#16101f", grave: "#1a1428" },
           story: "The library sits right over the Hellmouth. They're pouring out. Hold the line." },
-        { name: "The Master's Lair", quota: 0, boss: true, palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
+        { name: "The Master's Lair", quota: 0, boss: true, bg: "lair", palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
           story: "The Master himself. This is what you were chosen for, Slayer. End it." },
     ];
     export function stage(): Stage { return STAGES[Math.max(0, Math.min(state.stageIndex, STAGES.length - 1))]; }

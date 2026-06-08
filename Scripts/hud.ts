@@ -26,9 +26,11 @@ namespace SN {
         }
         if (hudStage) {
             const s = stage();
+            const waves = effectiveWaves(s);
+            const waveTag = waves.length > 1 ? "  ·  Wave " + (state.waveIndex + 1) + "/" + waves.length : "";
             hudStage.textContent = s.boss ? s.name + " — BOSS"
                 : state.phase === "cleared" ? s.name + " — CLEAR →"
-                : s.name + "  " + Math.min(state.defeatedThisStage, s.quota) + "/" + s.quota;
+                : s.name + "  " + Math.min(state.defeatedThisStage, s.quota) + "/" + s.quota + waveTag;
         }
         if (bossBar) {
             if (state.boss) { bossBar.classList.remove("hidden"); if (bossName) { bossName.textContent = stage().name; } bossFill.style.width = Math.max(0, (state.boss.hp / state.boss.maxHp) * 100) + "%"; }

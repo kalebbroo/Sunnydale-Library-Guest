@@ -47,6 +47,7 @@ namespace SN {
     export function enterStage(i: number): void {
         state.stageIndex = i;
         state.spawnedThisStage = 0; state.defeatedThisStage = 0; state.exitOpen = false; state.bossSpawned = false;
+        state.tookDamageThisStage = false; state.player.grabbing = null; state.waveIndex = 0; state.arenaLocked = false;
         state.enemies = []; state.bolts = []; state.pickups = [];
         state.camX = state.player.x - viewW * 0.5;
         seedBackground();
@@ -56,7 +57,7 @@ namespace SN {
     }
     export function beginStage(s: Stage): void {
         state.phase = "playing"; state.spawnTimer = 500;
-        if (s.boss) { spawnBoss(); }
+        if (s.boss) { spawnBoss(); } else { startWave(0); }
         state.banner = { text: s.name, until: nowMs + 2200 };
         Sound.sfx.stage();
         if (controls) { controls.classList.remove("hidden"); controls.setAttribute("aria-hidden", "false"); }
@@ -64,8 +65,23 @@ namespace SN {
         paused = false; lastTs = 0; rafId = requestAnimationFrame(frame);
     }
 
+    // Best-effort: enter fullscreen + lock to landscape (works on Android Chrome; iOS Safari can't
+    // lock, so the CSS #rotate-hint covers portrait there). Called from the Start tap — a user
+    // gesture, which fullscreen requires. All failures are silent.
+    export function goLandscape(): void {
+        const root = (document.getElementById("game-root") || document.documentElement) as unknown as { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void };
+        try {
+            const req = root.requestFullscreen || root.webkitRequestFullscreen;
+            if (req && !document.fullscreenElement) { const r = req.call(root) as Promise<void> | void; if (r && (r as Promise<void>).catch) { (r as Promise<void>).catch(() => { /* denied */ }); } }
+        } catch { /* no fullscreen */ }
+        try {
+            const o = (screen as unknown as { orientation?: { lock?: (s: string) => Promise<void> } }).orientation;
+            if (o && o.lock) { const r = o.lock("landscape"); if (r && r.catch) { r.catch(() => { /* iOS / unsupported */ }); } }
+        } catch { /* unsupported */ }
+    }
+
     export function startGame(): void {
-        resize(); Sound.resume(); Sound.startMusic();
+        goLandscape(); resize(); Sound.resume(); Sound.startMusic();
         state = freshState(); requestRunToken();
         state.running = true;
         held.clear(); input.left = input.right = input.up = input.down = false; input.jumpBufferedAt = -1e9;

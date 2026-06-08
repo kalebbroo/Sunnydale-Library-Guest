@@ -17,6 +17,14 @@
     <div id="game-root">
         <canvas id="game-canvas"></canvas>
 
+        @* Portrait nudge — the game is landscape; on iOS (no orientation lock) this asks the
+           player to rotate. Hidden automatically once the device is in landscape. *@
+        <div id="rotate-hint" aria-hidden="true">
+            <span class="rot-icon" aria-hidden="true">&#128241;</span>
+            <p>Turn your phone sideways</p>
+            <small>Stake Night plays in landscape.</small>
+        </div>
+
         @* Persistent sound toggle (also unlocks the AudioContext on first tap) *@
         <button id="btn-mute" class="mute-btn" type="button" aria-label="Toggle sound">&#128266;</button>
 

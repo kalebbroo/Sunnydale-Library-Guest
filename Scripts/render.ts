@@ -4,36 +4,55 @@
  * use sprite sheets when loaded (drawSheet) and fall back to procedural shapes otherwise.
  */
 namespace SN {
+    // Draw the stage's painted parallax layers (sky → mid → near), each tiled and scrolled by its
+    // parallax factor. Returns false if the stage has no bg or its layers aren't all loaded yet.
+    export function drawBgLayers(): boolean {
+        const s = stage(); if (!s.bg) { return false; }
+        const set = loadBg(s.bg);
+        if (!set.sky.ready || !set.mid.ready || !set.near.ready) { return false; }
+        drawBgLayer(set.sky); drawBgLayer(set.mid); drawBgLayer(set.near);
+        return true;
+    }
+    function drawBgLayer(L: BgLayer): void {
+        const img = L.img; if (!img) { return; }
+        const scale = viewH / img.height; const w = Math.max(1, img.width * scale);
+        let x = -(((state.camX * L.par) % w + w) % w);   // seamless horizontal tiling
+        for (; x < viewW; x += w) { ctx.drawImage(img, 0, 0, img.width, img.height, x, 0, w, viewH); }
+    }
+
     export function render(): void {
         const ftY = floorTopY(); const pal = stage().palette; const OS = 26;
         const shx = state.shake > 0 ? (Math.random() * 2 - 1) * state.shake : 0;
         const shy = state.shake > 0 ? (Math.random() * 2 - 1) * state.shake : 0;
         ctx.save(); ctx.translate(shx, shy);
 
-        const sky = ctx.createLinearGradient(0, 0, 0, ftY);
-        sky.addColorStop(0, pal.sky0); sky.addColorStop(1, pal.sky1);
-        ctx.fillStyle = sky; ctx.fillRect(-OS, -OS, viewW + OS * 2, ftY + OS);
+        // Painted parallax layers if this stage's PNGs are loaded; otherwise the procedural scene.
+        if (!drawBgLayers()) {
+            const sky = ctx.createLinearGradient(0, 0, 0, ftY);
+            sky.addColorStop(0, pal.sky0); sky.addColorStop(1, pal.sky1);
+            ctx.fillStyle = sky; ctx.fillRect(-OS, -OS, viewW + OS * 2, ftY + OS);
 
-        for (const s of state.stars) {
-            const px = ((s.x - state.camX * s.par) % viewW + viewW) % viewW;
-            ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw + nowMs / 600)); ctx.fillStyle = "#fdf6d8";
-            ctx.beginPath(); ctx.arc(px, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+            for (const s of state.stars) {
+                const px = ((s.x - state.camX * s.par) % viewW + viewW) % viewW;
+                ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw + nowMs / 600)); ctx.fillStyle = "#fdf6d8";
+                ctx.beginPath(); ctx.arc(px, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = "#f4ecc6"; ctx.beginPath(); ctx.arc(viewW * 0.8, ftY * 0.26, 34, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "rgba(11,10,20,0.55)"; ctx.beginPath(); ctx.arc(viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2); ctx.fill();
+
+            ctx.fillStyle = pal.grave;
+            for (const g of state.graves) {
+                const gx = g.x - state.camX * g.par; const px = ((gx % (viewW + 400)) + (viewW + 400)) % (viewW + 400) - 200;
+                ctx.beginPath(); ctx.moveTo(px - g.w / 2, ftY); ctx.lineTo(px - g.w / 2, ftY - g.h * 0.55);
+                ctx.arc(px, ftY - g.h * 0.55, g.w / 2, Math.PI, 0); ctx.lineTo(px + g.w / 2, ftY); ctx.closePath(); ctx.fill();
+            }
+
+            const floor = ctx.createLinearGradient(0, ftY, 0, ftY + floorDepth());
+            floor.addColorStop(0, pal.floor0); floor.addColorStop(1, pal.floor1);
+            ctx.fillStyle = floor; ctx.fillRect(-OS, ftY, viewW + OS * 2, floorDepth() + OS);
+            ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.beginPath(); ctx.moveTo(0, ftY); ctx.lineTo(viewW, ftY); ctx.stroke();
         }
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#f4ecc6"; ctx.beginPath(); ctx.arc(viewW * 0.8, ftY * 0.26, 34, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "rgba(11,10,20,0.55)"; ctx.beginPath(); ctx.arc(viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2); ctx.fill();
-
-        ctx.fillStyle = pal.grave;
-        for (const g of state.graves) {
-            const gx = g.x - state.camX * g.par; const px = ((gx % (viewW + 400)) + (viewW + 400)) % (viewW + 400) - 200;
-            ctx.beginPath(); ctx.moveTo(px - g.w / 2, ftY); ctx.lineTo(px - g.w / 2, ftY - g.h * 0.55);
-            ctx.arc(px, ftY - g.h * 0.55, g.w / 2, Math.PI, 0); ctx.lineTo(px + g.w / 2, ftY); ctx.closePath(); ctx.fill();
-        }
-
-        const floor = ctx.createLinearGradient(0, ftY, 0, ftY + floorDepth());
-        floor.addColorStop(0, pal.floor0); floor.addColorStop(1, pal.floor1);
-        ctx.fillStyle = floor; ctx.fillRect(-OS, ftY, viewW + OS * 2, floorDepth() + OS);
-        ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.beginPath(); ctx.moveTo(0, ftY); ctx.lineTo(viewW, ftY); ctx.stroke();
 
         ctx.fillStyle = "rgba(0,0,0,0.28)";
         const shadow = (x: number, z: number, w: number) => { ctx.beginPath(); ctx.ellipse(sx(x), groundY(z), w * 0.5, w * 0.22, 0, 0, Math.PI * 2); ctx.fill(); };
@@ -117,9 +136,15 @@ namespace SN {
         if (drawSheet(e.type, e.anim, e.animStart, fx, fy, facing)) { return; }
         const winding = e.phase === "windup";
         const striking = e.phase === "active";
-        const bob = Math.sin(e.wobble) * 3;
+        const blocking = e.phase === "block";
+        const thrown = e.phase === "thrown";
+        const downed = e.phase === "down" || e.phase === "getup";
+        const bob = (winding || striking || blocking || downed || thrown) ? 0 : Math.sin(e.wobble) * 3;
         const lean = (winding ? -4 : striking ? 6 : 0) * facing;   // cock back, then lunge in
         ctx.save(); ctx.translate(fx + lean, fy + bob);
+        if (thrown) { ctx.rotate(e.wobble * 3); }                   // tumbling through the air
+        else if (e.phase === "down") { ctx.rotate(facing * 1.3); }  // flat on the ground
+        else if (e.phase === "getup") { ctx.rotate(facing * 0.6); } // rising back up
 
         // Wind-up telegraph: a pulsing red aura + glowing eyes so the strike is readable/dodgeable.
         if (winding) {
@@ -132,14 +157,21 @@ namespace SN {
         ctx.fillStyle = "#b9a6c4"; ctx.beginPath(); ctx.arc(0, -e.h + 8, e.w * 0.34, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = winding ? "#ffd23b" : "#ff3b3b"; ctx.fillRect(-5, -e.h + 6, 3, 3); ctx.fillRect(2, -e.h + 6, 3, 3);
 
-        // Claw arm: drawn cocked back on the wind-up, slashing forward on the strike frame.
-        const reach = striking ? 22 : winding ? -6 : 8;
-        ctx.save(); ctx.scale(facing, 1);
-        ctx.strokeStyle = striking ? "#ff6b6b" : "#cdbcd6"; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(e.w * 0.28, -e.h * 0.6); ctx.lineTo(e.w * 0.28 + reach, -e.h * 0.6 + (striking ? 6 : 0)); ctx.stroke();
-        ctx.restore();
+        if (blocking) {
+            // Guard: a bluish forearm bracket raised in front — needs a finisher/jump/scythe to break.
+            ctx.save(); ctx.scale(facing, 1); ctx.strokeStyle = "#bfe3ff"; ctx.lineWidth = 5;
+            ctx.beginPath(); ctx.moveTo(e.w * 0.16, -e.h * 0.78); ctx.lineTo(e.w * 0.16, -e.h * 0.28); ctx.stroke();
+            ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(e.w * 0.16, -e.h * 0.5, 5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+            ctx.restore();
+        } else if (!downed && !thrown) {
+            // Claw arm: cocked back on the wind-up, slashing forward on the strike frame.
+            const reach = striking ? 22 : winding ? -6 : 8;
+            ctx.save(); ctx.scale(facing, 1); ctx.strokeStyle = striking ? "#ff6b6b" : "#cdbcd6"; ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(e.w * 0.28, -e.h * 0.6); ctx.lineTo(e.w * 0.28 + reach, -e.h * 0.6 + (striking ? 6 : 0)); ctx.stroke();
+            ctx.restore();
+        }
 
-        if (e.hp < e.def.hp) { ctx.fillStyle = "#7a2233"; ctx.fillRect(-e.w / 2, -e.h + 2, e.w * (e.hp / e.def.hp), 3); }
+        if (e.hp < e.def.hp && !downed && !thrown) { ctx.fillStyle = "#7a2233"; ctx.fillRect(-e.w / 2, -e.h + 2, e.w * (e.hp / e.def.hp), 3); }
         ctx.restore();
     }
 
