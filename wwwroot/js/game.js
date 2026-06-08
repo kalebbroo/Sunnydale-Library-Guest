@@ -1,22 +1,12 @@
 "use strict";
 /*
- * Stake Night — a canvas BEAT-'EM-UP for the Sunnydale guest portal (TMNT/Streets-of-Rage
- * style): walk a 2.5D floor with depth, combo the vampires that swarm you, clear each scene,
- * follow the EXIT east through a short story, and finish on The Master.
- *
- * TypeScript source, compiled to wwwroot/js/game.js by tsc during `dotnet build`.
- *
- * Coordinates: x = world horizontal, z = floor depth (0 far/top … FLOOR_DEPTH near/bottom),
- * y = jump height. screenX = x - camX; screenY = floorTopY + z - y.
- *
- * Art: drawActor() uses a sprite sheet if loaded (see SPRITES.md), else procedural shapes.
- * Talks to /api/run/start (anti-cheat token) and /api/scores (leaderboard).
+ * Stake Night — tunables, enemy/stage data, and sprite-sheet definitions.
+ * Pure data plus stage() (the current-stage accessor). No runtime side effects at load.
  */
-(function () {
-    "use strict";
-    var _a;
+var SN;
+(function (SN) {
     // ---- Tunables ---------------------------------------------------------
-    const CONFIG = {
+    SN.CONFIG = {
         floorTopFrac: 0.56, floorDepthFrac: 0.34, camLerp: 7,
         moveSpeed: 250, depthScale: 0.62, gravity: 2600, jumpVel: 720, coyoteMs: 90, jumpBufferMs: 120,
         attackCooldownMs: 300, attackMs: 160, attackReachX: 66, attackBandZ: 28, iframesMs: 1100,
@@ -26,16 +16,25 @@
         bossSpeed: 95, bossDashSpeed: 430,
         scytheMs: 9000, scytheReachMult: 1.8,
         throwCooldownMs: 600, throwSpeed: 760,
-        knockImpulse: 280, knockFriction: 6, stunMs: 240,
+        knockImpulse: 460, knockFriction: 5, stunMs: 280, // harder hits, longer slide
+        // Enemy melee: hold at standoff in x, align in z, then telegraph + strike. Damage lands
+        // only on the active frame, so the wind-up is a real dodge window.
+        enemyStandoff: 46, enemyAttackRangeX: 60, enemyAttackBandZ: 22, enemyActiveMs: 120,
+        maxAttackers: 2, // attack tokens: how many vamps may swing at once
+        enemySeparation: 26, // gentle push-apart so they don't stack on one spot
+        // Player getting hit: i-frames (above) + a shove + a brief loss of control.
+        playerKnock: 300, hitstunMs: 300,
+        hitStopMs: 60, // freeze-frames on a landed hit (juice)
         exitWalk: 440, // how far east to walk through an opened exit
     };
-    const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const ENEMY_TYPES = {
-        grunt: { hp: 2, w: 30, h: 62, speed: 80, points: 120, color: "#1c1430", weight: () => 1.0 },
-        runner: { hp: 1, w: 26, h: 56, speed: 150, points: 160, color: "#3a1330", weight: t => Math.max(0, t - 0.1) * 1.3 },
-        brute: { hp: 4, w: 46, h: 78, speed: 55, points: 380, color: "#0f1a14", weight: t => Math.max(0, t - 0.25) * 0.9 },
+    SN.LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    SN.ENEMY_TYPES = {
+        grunt: { hp: 2, w: 30, h: 62, speed: 80, points: 120, color: "#1c1430", weight: () => 1.0, windup: 380, recover: 520, knock: 300 },
+        runner: { hp: 1, w: 26, h: 56, speed: 150, points: 160, color: "#3a1330", weight: t => Math.max(0, t - 0.1) * 1.3, windup: 240, recover: 360, knock: 260 },
+        brute: { hp: 4, w: 46, h: 78, speed: 55, points: 380, color: "#0f1a14", weight: t => Math.max(0, t - 0.25) * 0.9, windup: 600, recover: 760, knock: 470 },
     };
-    const STAGES = [
+    // ---- Stages (data-driven scenes; last one is the boss) ----------------
+    SN.STAGES = [
         { name: "Restfield Cemetery", quota: 6, palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
             story: "Patrol's on. The dead don't rest in Sunnydale — clear the fledglings prowling Restfield." },
         { name: "The Crypt", quota: 8, palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
@@ -47,43 +46,92 @@
         { name: "The Master's Lair", quota: 0, boss: true, palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
             story: "The Master himself. This is what you were chosen for, Slayer. End it." },
     ];
-    function stage() { return STAGES[Math.max(0, Math.min(state.stageIndex, STAGES.length - 1))]; }
-    const ACTOR_ANIMS = {
+    function stage() { return SN.STAGES[Math.max(0, Math.min(SN.state.stageIndex, SN.STAGES.length - 1))]; }
+    SN.stage = stage;
+    // ---- Sprite sheets (see SPRITES.md) -----------------------------------
+    // Animation rows. Actors share rows 0-3; the player adds rows 4-8 for the richer move set
+    // (jump, knockdown, throw, block, victory) and enemies add a knockdown row. Each entry is
+    // { row index, frame count, playback fps, loops }. The loader reads frame f of row r from the
+    // pixel rect (f·fw, r·fh, fw, fh). Names here are the strings code assigns to actor.anim.
+    SN.PLAYER_ANIMS = {
         idle: { row: 0, frames: 4, fps: 6, loop: true },
         walk: { row: 1, frames: 6, fps: 12, loop: true },
-        attack: { row: 2, frames: 3, fps: 18, loop: false },
+        attack: { row: 2, frames: 4, fps: 18, loop: false },
+        hurt: { row: 3, frames: 2, fps: 10, loop: false },
+        jump: { row: 4, frames: 3, fps: 10, loop: false },
+        knockdown: { row: 5, frames: 4, fps: 8, loop: false },
+        throw: { row: 6, frames: 3, fps: 14, loop: false },
+        block: { row: 7, frames: 2, fps: 12, loop: false },
+        victory: { row: 8, frames: 3, fps: 6, loop: false },
+    };
+    SN.ENEMY_ANIMS = {
+        idle: { row: 0, frames: 4, fps: 6, loop: true },
+        walk: { row: 1, frames: 6, fps: 12, loop: true },
+        attack: { row: 2, frames: 4, fps: 16, loop: false },
+        hurt: { row: 3, frames: 2, fps: 10, loop: false },
+        knockdown: { row: 4, frames: 4, fps: 8, loop: false },
+    };
+    SN.BOSS_ANIMS = {
+        idle: { row: 0, frames: 4, fps: 6, loop: true },
+        walk: { row: 1, frames: 6, fps: 12, loop: true },
+        attack: { row: 2, frames: 4, fps: 16, loop: false },
         hurt: { row: 3, frames: 2, fps: 10, loop: false },
     };
-    const SHEETS = {
-        buffy: { src: "/img/buffy.png", fw: 64, fh: 64, scale: 1.0, anims: ACTOR_ANIMS },
-        grunt: { src: "/img/vamp_grunt.png", fw: 48, fh: 64, scale: 1.0, anims: ACTOR_ANIMS },
-        runner: { src: "/img/vamp_runner.png", fw: 48, fh: 64, scale: 1.0, anims: ACTOR_ANIMS },
-        brute: { src: "/img/vamp_brute.png", fw: 64, fh: 80, scale: 1.0, anims: ACTOR_ANIMS },
-        boss: { src: "/img/master.png", fw: 80, fh: 96, scale: 1.0, anims: ACTOR_ANIMS },
+    // The sheets the loader fetches. Until a PNG exists the actor draws procedurally (drawSheet
+    // returns false), so art can ship one file at a time. fw/fh is the source cell; `scale` sizes
+    // it on screen (≈ a head taller than the hitbox). `smooth: true` keeps painterly/HD source art
+    // crisp when scaled down — set false for true pixel art.
+    SN.SHEETS = {
+        buffy: { src: "/img/buffy.png", fw: 96, fh: 128, scale: 0.75, smooth: true, anims: SN.PLAYER_ANIMS },
+        grunt: { src: "/img/vamp_grunt.png", fw: 80, fh: 112, scale: 0.75, smooth: true, anims: SN.ENEMY_ANIMS },
+        runner: { src: "/img/vamp_runner.png", fw: 80, fh: 112, scale: 0.75, smooth: true, anims: SN.ENEMY_ANIMS },
+        brute: { src: "/img/vamp_brute.png", fw: 112, fh: 144, scale: 0.78, smooth: true, anims: SN.ENEMY_ANIMS },
+        boss: { src: "/img/master.png", fw: 144, fh: 176, scale: 0.80, smooth: true, anims: SN.BOSS_ANIMS },
     };
-    // ---- Canvas -----------------------------------------------------------
-    const canvas = document.getElementById("game-canvas");
-    const ctx = canvas.getContext("2d");
-    let viewW = 0, viewH = 0, dpr = 1;
+})(SN || (SN = {}));
+/*
+ * Stake Night — canvas, viewport, the frame clock, and the world→screen projection.
+ *
+ * Coordinates: x = world horizontal, z = floor depth (0 far/top … floorDepth() near/bottom),
+ * y = jump height. screenX = x - camX; screenY = floorTopY + z - y.
+ */
+var SN;
+(function (SN) {
+    SN.canvas = document.getElementById("game-canvas");
+    SN.ctx = SN.canvas.getContext("2d");
+    SN.viewW = 0, SN.viewH = 0, SN.dpr = 1;
+    SN.nowMs = 0;
     function resize() {
-        dpr = Math.min(window.devicePixelRatio || 1, 2);
-        viewW = canvas.clientWidth || window.innerWidth;
-        viewH = canvas.clientHeight || window.innerHeight;
-        canvas.width = Math.round(viewW * dpr);
-        canvas.height = Math.round(viewH * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        if (ctx) {
-            ctx.imageSmoothingEnabled = false;
+        SN.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        SN.viewW = SN.canvas.clientWidth || window.innerWidth;
+        SN.viewH = SN.canvas.clientHeight || window.innerHeight;
+        SN.canvas.width = Math.round(SN.viewW * SN.dpr);
+        SN.canvas.height = Math.round(SN.viewH * SN.dpr);
+        SN.ctx.setTransform(SN.dpr, 0, 0, SN.dpr, 0, 0);
+        if (SN.ctx) {
+            SN.ctx.imageSmoothingEnabled = false;
         }
     }
+    SN.resize = resize;
     window.addEventListener("resize", resize);
-    function floorTopY() { return viewH * CONFIG.floorTopFrac; }
-    function floorDepth() { return viewH * CONFIG.floorDepthFrac; }
-    function sx(x) { return x - state.camX; }
+    function floorTopY() { return SN.viewH * SN.CONFIG.floorTopFrac; }
+    SN.floorTopY = floorTopY;
+    function floorDepth() { return SN.viewH * SN.CONFIG.floorDepthFrac; }
+    SN.floorDepth = floorDepth;
+    function sx(x) { return x - SN.state.camX; }
+    SN.sx = sx;
     function groundY(z) { return floorTopY() + z; }
+    SN.groundY = groundY;
     function feetY(z, y) { return floorTopY() + z - y; }
-    // ---- Audio (Web Audio, synthesized — no asset files) ------------------
-    const Sound = (function () {
+    SN.feetY = feetY;
+})(SN || (SN = {}));
+/*
+ * Stake Night — Web Audio sound effects and a tiny synth bassline. No asset files; every
+ * sound is generated. Tolerates browsers with no AudioContext (stays silent).
+ */
+var SN;
+(function (SN) {
+    SN.Sound = (function () {
         const ACtor = window.AudioContext
             || window.webkitAudioContext;
         let ctxA = null;
@@ -204,26 +252,120 @@
         function isMuted() { return muted; }
         return { resume, sfx, startMusic, stopMusic, toggleMute, isMuted };
     })();
-    let nowMs = 0;
-    // ---- Input ------------------------------------------------------------
-    const input = { left: false, right: false, up: false, down: false, jumpBufferedAt: -1e9 };
-    const held = new Set();
-    function pressJump() { input.jumpBufferedAt = nowMs; }
-    function syncDirs() {
-        input.left = held.has("arrowleft") || held.has("a");
-        input.right = held.has("arrowright") || held.has("d");
-        input.up = held.has("arrowup") || held.has("w");
-        input.down = held.has("arrowdown") || held.has("s");
+})(SN || (SN = {}));
+/*
+ * Stake Night — sprite-sheet loader and frame blitter. drawSheet() returns false when a sheet
+ * isn't ready, so callers fall back to procedural shapes (see render.ts). See SPRITES.md.
+ */
+var SN;
+(function (SN) {
+    SN.sheets = {};
+    function loadSheets() {
+        if (typeof Image === "undefined") {
+            return;
+        }
+        for (const key of Object.keys(SN.SHEETS)) {
+            const def = SN.SHEETS[key];
+            const stt = { def, img: null, ready: false };
+            try {
+                const img = new Image();
+                img.onload = () => { stt.img = img; stt.ready = true; };
+                img.onerror = () => { stt.ready = false; };
+                img.src = def.src;
+            }
+            catch { /* ignore */ }
+            SN.sheets[key] = stt;
+        }
     }
+    SN.loadSheets = loadSheets;
+    function drawSheet(kind, anim, animStart, fxp, fyp, facing) {
+        const stt = SN.sheets[kind];
+        if (!stt || !stt.ready || !stt.img) {
+            return false;
+        }
+        const def = stt.def;
+        const a = def.anims[anim] || def.anims.idle;
+        let frame = Math.floor(((SN.nowMs - animStart) / 1000) * a.fps);
+        frame = a.loop ? frame % a.frames : Math.min(frame, a.frames - 1);
+        const w = def.fw * def.scale, h = def.fh * def.scale;
+        SN.ctx.save();
+        SN.ctx.imageSmoothingEnabled = def.smooth !== false; // HD/painterly sheets scale cleanly; restored by ctx.restore()
+        SN.ctx.translate(fxp, fyp);
+        SN.ctx.scale(facing, 1);
+        SN.ctx.drawImage(stt.img, frame * def.fw, a.row * def.fh, def.fw, def.fh, -w / 2, -h, w, h);
+        SN.ctx.restore();
+        return true;
+    }
+    SN.drawSheet = drawSheet;
+})(SN || (SN = {}));
+/*
+ * Stake Night — the mutable game state and its fresh-start factories, plus the parallax
+ * background seeding (stars + gravestones) sized to the current viewport.
+ */
+var SN;
+(function (SN) {
+    SN.projHitId = -1;
+    function freshPlayer() {
+        return {
+            x: 0, z: SN.floorDepth() * 0.5, y: 0, vy: 0, w: 30, h: 64, facing: 1, moving: false,
+            onGround: true, lastGroundMs: 0, attackUntil: -1e9, lastAttackMs: -1e9, hurtUntil: -1e9,
+            hitstunUntil: -1e9, knockVx: 0, knockVz: 0,
+            crossbowUntil: -1e9, scytheUntil: -1e9, canThrow: false, lastThrowMs: -1e9,
+            lives: SN.CONFIG.startLives, anim: "idle", animStart: 0,
+        };
+    }
+    SN.freshPlayer = freshPlayer;
+    function freshState() {
+        return {
+            running: false, phase: "playing", score: 0, combo: 0, bestCombo: 0, elapsed: 0,
+            stageIndex: 0, spawnedThisStage: 0, defeatedThisStage: 0,
+            exitOpen: false, exitX: 0, bossSpawned: false, victory: false,
+            spawnTimer: 700, pickupTimer: SN.CONFIG.pickupEveryMs, camX: 0, attackId: 0, flash: 0, hitStop: 0,
+            player: freshPlayer(), enemies: [], pickups: [], bolts: [], dust: [], stars: [], graves: [],
+            boss: null, popups: [], banner: null, shake: 0, runToken: null,
+        };
+    }
+    SN.freshState = freshState;
+    function seedBackground() {
+        SN.state.stars = [];
+        const count = Math.round((SN.viewW * SN.floorTopY()) / 9000);
+        for (let i = 0; i < count; i++) {
+            SN.state.stars.push({ x: Math.random() * SN.viewW, y: Math.random() * SN.floorTopY() * 0.9, r: Math.random() * 1.4 + 0.3, tw: Math.random() * Math.PI * 2, par: 0.2 + Math.random() * 0.2 });
+        }
+        SN.state.graves = [];
+        const graveCount = Math.max(6, Math.round(SN.viewW / 120));
+        for (let i = 0; i < graveCount * 3; i++) {
+            SN.state.graves.push({ x: (i - graveCount) * 150 + Math.random() * 90, w: 30 + Math.random() * 26, h: 40 + Math.random() * 34, par: 0.5 });
+        }
+    }
+    SN.seedBackground = seedBackground;
+})(SN || (SN = {}));
+/*
+ * Stake Night — keyboard + touch input. Holds the directional state and wires the on-screen
+ * buttons. tryAttack/tryThrow (combat.ts) are invoked lazily so file order doesn't matter.
+ */
+var SN;
+(function (SN) {
+    SN.input = { left: false, right: false, up: false, down: false, jumpBufferedAt: -1e9 };
+    SN.held = new Set();
+    function pressJump() { SN.input.jumpBufferedAt = SN.nowMs; }
+    SN.pressJump = pressJump;
+    function syncDirs() {
+        SN.input.left = SN.held.has("arrowleft") || SN.held.has("a");
+        SN.input.right = SN.held.has("arrowright") || SN.held.has("d");
+        SN.input.up = SN.held.has("arrowup") || SN.held.has("w");
+        SN.input.down = SN.held.has("arrowdown") || SN.held.has("s");
+    }
+    SN.syncDirs = syncDirs;
     function keyDown(e) {
         const k = e.key.toLowerCase();
         if (["arrowleft", "a", "arrowright", "d", "arrowup", "w", "arrowdown", "s"].includes(k)) {
-            held.add(k);
+            SN.held.add(k);
             syncDirs();
             e.preventDefault();
         }
         else if (k === " " || k === "spacebar" || k === "j" || k === "x" || k === "enter" || e.code === "Space") {
-            tryAttack();
+            SN.tryAttack();
             e.preventDefault();
         }
         else if (k === "k" || k === "shift") {
@@ -231,14 +373,13 @@
             e.preventDefault();
         }
         else if (k === "l" || k === ";") {
-            tryThrow();
+            SN.tryThrow();
             e.preventDefault();
         }
     }
-    function keyUp(e) { held.delete(e.key.toLowerCase()); syncDirs(); }
-    window.addEventListener("keydown", keyDown);
-    window.addEventListener("keyup", keyUp);
-    canvas.addEventListener("pointerdown", function (e) { e.preventDefault(); tryAttack(); }, { passive: false });
+    SN.keyDown = keyDown;
+    function keyUp(e) { SN.held.delete(e.key.toLowerCase()); syncDirs(); }
+    SN.keyUp = keyUp;
     function bindHold(el, on) {
         if (!el) {
             return;
@@ -249,93 +390,35 @@
         el.addEventListener("pointercancel", set(false));
         el.addEventListener("pointerleave", set(false));
     }
+    SN.bindHold = bindHold;
     function bindTap(el, fn) {
         if (!el) {
             return;
         }
         el.addEventListener("pointerdown", (e) => { e.preventDefault(); fn(); }, { passive: false });
     }
-    bindHold(document.getElementById("btn-left"), v => { input.left = v; });
-    bindHold(document.getElementById("btn-right"), v => { input.right = v; });
-    bindHold(document.getElementById("btn-up"), v => { input.up = v; });
-    bindHold(document.getElementById("btn-down"), v => { input.down = v; });
-    bindTap(document.getElementById("btn-attack"), tryAttack);
+    SN.bindTap = bindTap;
+    window.addEventListener("keydown", keyDown);
+    window.addEventListener("keyup", keyUp);
+    SN.canvas.addEventListener("pointerdown", function (e) { e.preventDefault(); SN.tryAttack(); }, { passive: false });
+    bindHold(document.getElementById("btn-left"), v => { SN.input.left = v; });
+    bindHold(document.getElementById("btn-right"), v => { SN.input.right = v; });
+    bindHold(document.getElementById("btn-up"), v => { SN.input.up = v; });
+    bindHold(document.getElementById("btn-down"), v => { SN.input.down = v; });
+    bindTap(document.getElementById("btn-attack"), () => SN.tryAttack());
     bindTap(document.getElementById("btn-jump"), pressJump);
-    bindTap(document.getElementById("btn-throw"), tryThrow);
-    // ---- Sprite loader ----------------------------------------------------
-    const sheets = {};
-    function loadSheets() {
-        if (typeof Image === "undefined") {
-            return;
-        }
-        for (const key of Object.keys(SHEETS)) {
-            const def = SHEETS[key];
-            const stt = { def, img: null, ready: false };
-            try {
-                const img = new Image();
-                img.onload = () => { stt.img = img; stt.ready = true; };
-                img.onerror = () => { stt.ready = false; };
-                img.src = def.src;
-            }
-            catch { /* ignore */ }
-            sheets[key] = stt;
-        }
-    }
-    function drawSheet(kind, anim, animStart, fxp, fyp, facing) {
-        const stt = sheets[kind];
-        if (!stt || !stt.ready || !stt.img) {
-            return false;
-        }
-        const def = stt.def;
-        const a = def.anims[anim] || def.anims.idle;
-        let frame = Math.floor(((nowMs - animStart) / 1000) * a.fps);
-        frame = a.loop ? frame % a.frames : Math.min(frame, a.frames - 1);
-        const w = def.fw * def.scale, h = def.fh * def.scale;
-        ctx.save();
-        ctx.translate(fxp, fyp);
-        ctx.scale(facing, 1);
-        ctx.drawImage(stt.img, frame * def.fw, a.row * def.fh, def.fw, def.fh, -w / 2, -h, w, h);
-        ctx.restore();
-        return true;
-    }
-    // ---- State ------------------------------------------------------------
-    let state;
-    let projHitId = -1;
-    function freshPlayer() {
-        return {
-            x: 0, z: floorDepth() * 0.5, y: 0, vy: 0, w: 30, h: 64, facing: 1, moving: false,
-            onGround: true, lastGroundMs: 0, attackUntil: -1e9, lastAttackMs: -1e9, hurtUntil: -1e9,
-            crossbowUntil: -1e9, scytheUntil: -1e9, canThrow: false, lastThrowMs: -1e9,
-            lives: CONFIG.startLives, anim: "idle", animStart: 0,
-        };
-    }
-    function freshState() {
-        return {
-            running: false, phase: "playing", score: 0, combo: 0, bestCombo: 0, elapsed: 0,
-            stageIndex: 0, spawnedThisStage: 0, defeatedThisStage: 0,
-            exitOpen: false, exitX: 0, bossSpawned: false, victory: false,
-            spawnTimer: 700, pickupTimer: CONFIG.pickupEveryMs, camX: 0, attackId: 0, flash: 0,
-            player: freshPlayer(), enemies: [], pickups: [], bolts: [], dust: [], stars: [], graves: [],
-            boss: null, popups: [], banner: null, shake: 0, runToken: null,
-        };
-    }
-    function seedBackground() {
-        state.stars = [];
-        const count = Math.round((viewW * floorTopY()) / 9000);
-        for (let i = 0; i < count; i++) {
-            state.stars.push({ x: Math.random() * viewW, y: Math.random() * floorTopY() * 0.9, r: Math.random() * 1.4 + 0.3, tw: Math.random() * Math.PI * 2, par: 0.2 + Math.random() * 0.2 });
-        }
-        state.graves = [];
-        const graveCount = Math.max(6, Math.round(viewW / 120));
-        for (let i = 0; i < graveCount * 3; i++) {
-            state.graves.push({ x: (i - graveCount) * 150 + Math.random() * 90, w: 30 + Math.random() * 26, h: 40 + Math.random() * 34, par: 0.5 });
-        }
-    }
-    // ---- Spawning ---------------------------------------------------------
-    function difficultyT() { return Math.min(1, state.elapsed / CONFIG.spawnRampMs); }
+    bindTap(document.getElementById("btn-throw"), () => SN.tryThrow());
+})(SN || (SN = {}));
+/*
+ * Stake Night — difficulty ramp, weighted enemy spawning, pickup drops, and boss entrance.
+ */
+var SN;
+(function (SN) {
+    function difficultyT() { return Math.min(1, SN.state.elapsed / SN.CONFIG.spawnRampMs); }
+    SN.difficultyT = difficultyT;
     function pickEnemyType() {
         const t = difficultyT();
-        const entries = Object.entries(ENEMY_TYPES).map(([k, v]) => [k, Math.max(0, v.weight(t))]);
+        const entries = Object.entries(SN.ENEMY_TYPES).map(([k, v]) => [k, Math.max(0, v.weight(t))]);
         const total = entries.reduce((s, [, w]) => s + w, 0);
         let r = Math.random() * total;
         for (const [k, w] of entries) {
@@ -345,934 +428,1131 @@
         }
         return "grunt";
     }
+    SN.pickEnemyType = pickEnemyType;
     function spawnEnemy() {
-        if (state.enemies.length >= CONFIG.maxEnemies) {
+        if (SN.state.enemies.length >= SN.CONFIG.maxEnemies) {
             return;
         }
         const typeKey = pickEnemyType();
-        const def = ENEMY_TYPES[typeKey];
+        const def = SN.ENEMY_TYPES[typeKey];
         const side = Math.random() < 0.5 ? -1 : 1;
-        const x = side > 0 ? state.camX + viewW + 50 : state.camX - 50;
-        state.enemies.push({
-            type: typeKey, x, z: Math.random() * floorDepth(), y: 0, vx: 0, vz: 0, stunUntil: -1e9,
+        const x = side > 0 ? SN.state.camX + SN.viewW + 50 : SN.state.camX - 50;
+        SN.state.enemies.push({
+            type: typeKey, x, z: Math.random() * SN.floorDepth(), y: 0, vx: 0, vz: 0, stunUntil: -1e9,
             w: def.w, h: def.h, hp: def.hp, def, wobble: Math.random() * Math.PI * 2,
-            contactUntil: -1e9, hitBy: -1, alive: true, anim: "walk", animStart: nowMs,
+            contactUntil: -1e9, hitBy: -1, alive: true, anim: "walk", animStart: SN.nowMs,
+            phase: "chase", phaseUntil: -1e9,
         });
-        state.spawnedThisStage++;
+        SN.state.spawnedThisStage++;
     }
+    SN.spawnEnemy = spawnEnemy;
     function spawnPickup() {
         const roll = Math.random();
         const type = roll < 0.16 ? "heart" : roll < 0.46 ? "crossbow" : roll < 0.73 ? "scythe" : "holy";
-        state.pickups.push({ type, x: state.player.x + state.player.facing * (200 + Math.random() * 240), z: Math.random() * floorDepth(), bob: Math.random() * Math.PI * 2, born: nowMs });
+        SN.state.pickups.push({ type, x: SN.state.player.x + SN.state.player.facing * (200 + Math.random() * 240), z: Math.random() * SN.floorDepth(), bob: Math.random() * Math.PI * 2, born: SN.nowMs });
     }
+    SN.spawnPickup = spawnPickup;
     function spawnBoss() {
         const hp = 26;
-        state.boss = {
-            x: state.camX + viewW + 80, z: floorDepth() * 0.5, y: 0, w: 60, h: 96, hp, maxHp: hp,
-            nextDashAt: nowMs + 1800, dashUntil: -1e9, dashVx: 0, dashVz: 0, contactUntil: -1e9, hitBy: -1,
+        SN.state.boss = {
+            x: SN.state.camX + SN.viewW + 80, z: SN.floorDepth() * 0.5, y: 0, w: 60, h: 96, hp, maxHp: hp,
+            nextDashAt: SN.nowMs + 1800, dashUntil: -1e9, dashVx: 0, dashVz: 0, contactUntil: -1e9, hitBy: -1,
         };
-        state.bossSpawned = true;
-        Sound.sfx.bossIn();
+        SN.state.bossSpawned = true;
+        SN.Sound.sfx.bossIn();
     }
-    // ---- Combat -----------------------------------------------------------
+    SN.spawnBoss = spawnBoss;
+})(SN || (SN = {}));
+/*
+ * Stake Night — attacks, throws, projectile fire, knockback, damage resolution (enemies, boss,
+ * player), pickups, and the dust/score-popup particle spawners.
+ */
+var SN;
+(function (SN) {
     function tryAttack() {
-        if (!state || !state.running) {
+        if (!SN.state || !SN.state.running) {
             return;
         }
-        const p = state.player;
-        if (nowMs - p.lastAttackMs < CONFIG.attackCooldownMs) {
+        const p = SN.state.player;
+        if (SN.nowMs - p.lastAttackMs < SN.CONFIG.attackCooldownMs) {
             return;
         }
-        p.lastAttackMs = nowMs;
-        p.attackUntil = nowMs + CONFIG.attackMs;
+        p.lastAttackMs = SN.nowMs;
+        p.attackUntil = SN.nowMs + SN.CONFIG.attackMs;
         p.anim = "attack";
-        p.animStart = nowMs;
-        state.attackId++;
-        if (nowMs < p.crossbowUntil) {
+        p.animStart = SN.nowMs;
+        SN.state.attackId++;
+        if (SN.nowMs < p.crossbowUntil) {
             fire("bolt");
-            Sound.sfx.shoot();
+            SN.Sound.sfx.shoot();
             return;
         }
-        const scythe = nowMs < p.scytheUntil;
-        const reach = scythe ? CONFIG.attackReachX * CONFIG.scytheReachMult : CONFIG.attackReachX;
-        const band = scythe ? CONFIG.attackBandZ * 1.6 : CONFIG.attackBandZ;
+        const scythe = SN.nowMs < p.scytheUntil;
+        const reach = scythe ? SN.CONFIG.attackReachX * SN.CONFIG.scytheReachMult : SN.CONFIG.attackReachX;
+        const band = scythe ? SN.CONFIG.attackBandZ * 1.6 : SN.CONFIG.attackBandZ;
         const cx = p.x + p.facing * (reach * 0.5 + p.w * 0.5);
         let hitAny = false;
-        for (const e of state.enemies) {
-            if (!e.alive || e.hitBy === state.attackId) {
+        for (const e of SN.state.enemies) {
+            if (!e.alive || e.hitBy === SN.state.attackId) {
                 continue;
             }
             if (Math.abs(e.x - cx) < reach * 0.5 + e.w * 0.5 && Math.abs(e.z - p.z) < band && (e.x - p.x) * p.facing > -8) {
-                hitEnemy(e, state.attackId, scythe);
+                hitEnemy(e, SN.state.attackId, scythe);
                 hitAny = true;
             }
         }
-        if (state.boss) {
-            const b = state.boss;
-            if (Math.abs(b.x - cx) < reach * 0.5 + b.w * 0.5 && Math.abs(b.z - p.z) < band + 10 && (b.x - p.x) * p.facing > -8 && b.hitBy !== state.attackId) {
-                b.hitBy = state.attackId;
+        if (SN.state.boss) {
+            const b = SN.state.boss;
+            if (Math.abs(b.x - cx) < reach * 0.5 + b.w * 0.5 && Math.abs(b.z - p.z) < band + 10 && (b.x - p.x) * p.facing > -8 && b.hitBy !== SN.state.attackId) {
+                b.hitBy = SN.state.attackId;
                 damageBoss(scythe ? 3 : 1);
                 hitAny = true;
             }
         }
         if (!hitAny) {
-            state.combo = 0;
-            Sound.sfx.whiff();
-            updateHud();
+            SN.state.combo = 0;
+            SN.Sound.sfx.whiff();
+            SN.updateHud();
         }
     }
+    SN.tryAttack = tryAttack;
     function tryThrow() {
-        if (!state || !state.running) {
+        if (!SN.state || !SN.state.running) {
             return;
         }
-        const p = state.player;
-        if (!p.canThrow || nowMs - p.lastThrowMs < CONFIG.throwCooldownMs) {
+        const p = SN.state.player;
+        if (!p.canThrow || SN.nowMs - p.lastThrowMs < SN.CONFIG.throwCooldownMs) {
             return;
         }
-        p.lastThrowMs = nowMs;
-        p.attackUntil = nowMs + CONFIG.attackMs;
+        p.lastThrowMs = SN.nowMs;
+        p.attackUntil = SN.nowMs + SN.CONFIG.attackMs;
         p.anim = "attack";
-        p.animStart = nowMs;
+        p.animStart = SN.nowMs;
         fire("stake");
-        Sound.sfx.shoot();
+        SN.Sound.sfx.shoot();
     }
+    SN.tryThrow = tryThrow;
     function fire(kind) {
-        const p = state.player;
-        const speed = kind === "stake" ? CONFIG.throwSpeed : CONFIG.boltSpeed;
-        state.bolts.push({ kind, x: p.x + p.facing * 18, z: p.z, y: p.h * 0.55, vx: p.facing * speed, spin: 0, alive: true });
+        const p = SN.state.player;
+        const speed = kind === "stake" ? SN.CONFIG.throwSpeed : SN.CONFIG.boltSpeed;
+        SN.state.bolts.push({ kind, x: p.x + p.facing * 18, z: p.z, y: p.h * 0.55, vx: p.facing * speed, spin: 0, alive: true });
     }
+    SN.fire = fire;
     function knockback(e, lethal) {
-        const p = state.player;
+        const p = SN.state.player;
         const dirx = (Math.sign(e.x - p.x) || p.facing);
         const resist = e.type === "brute" ? 0.45 : 1;
-        e.vx = dirx * CONFIG.knockImpulse * resist * (lethal ? 1.5 : 1);
+        e.vx = dirx * SN.CONFIG.knockImpulse * resist * (lethal ? 1.5 : 1);
         e.vz = (e.z - p.z >= 0 ? 1 : -1) * 40 * resist;
-        e.stunUntil = nowMs + CONFIG.stunMs;
+        e.stunUntil = SN.nowMs + SN.CONFIG.stunMs;
     }
+    SN.knockback = knockback;
     function hitEnemy(e, attackId, lethal = false) {
         e.hitBy = attackId;
-        Sound.sfx.hit();
+        SN.Sound.sfx.hit();
+        SN.state.hitStop = Math.max(SN.state.hitStop, SN.CONFIG.hitStopMs); // freeze-frame on impact
+        e.phase = "chase";
+        e.phaseUntil = SN.nowMs + 220; // a hit cancels their swing
         if (lethal) {
             e.hp = 1;
         }
         e.hp--;
         knockback(e, e.hp <= 0);
         if (e.hp > 0) {
-            spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 6, "#8a6a9a");
+            spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 6, "#8a6a9a");
             e.anim = "hurt";
-            e.animStart = nowMs;
+            e.animStart = SN.nowMs;
             return;
         }
         e.alive = false;
-        state.defeatedThisStage++;
-        state.combo++;
-        state.bestCombo = Math.max(state.bestCombo, state.combo);
-        const gained = Math.round(e.def.points * (1 + Math.floor(state.combo / 5) * 0.5));
-        state.score += gained;
-        spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 16, "#c9b8d6");
-        spawnPopup(e.x, feetY(e.z, 0) - e.h, "+" + gained);
-        updateHud();
+        SN.state.defeatedThisStage++;
+        SN.state.combo++;
+        SN.state.bestCombo = Math.max(SN.state.bestCombo, SN.state.combo);
+        const gained = Math.round(e.def.points * (1 + Math.floor(SN.state.combo / 5) * 0.5));
+        SN.state.score += gained;
+        spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 16, "#c9b8d6");
+        spawnPopup(e.x, SN.feetY(e.z, 0) - e.h, "+" + gained);
+        SN.updateHud();
     }
+    SN.hitEnemy = hitEnemy;
     function damageBoss(n) {
-        const b = state.boss;
+        const b = SN.state.boss;
         if (!b) {
             return;
         }
         b.hp -= n;
-        spawnDust(b.x, feetY(b.z, 0) - b.h * 0.5, 8, "#ff7b7b");
+        spawnDust(b.x, SN.feetY(b.z, 0) - b.h * 0.5, 8, "#ff7b7b");
         if (b.hp <= 0) {
-            state.score += 2500;
-            state.combo += 5;
-            spawnDust(b.x, feetY(b.z, 0) - b.h * 0.5, 40, "#f4ecc6");
-            spawnPopup(b.x, feetY(b.z, 0) - b.h, "+2500");
-            state.flash = 0.9;
-            state.shake = Math.max(state.shake, 18);
-            Sound.sfx.bossDown();
-            state.boss = null;
-            endGame(true); // boss only exists on the finale stage → victory
+            SN.state.score += 2500;
+            SN.state.combo += 5;
+            spawnDust(b.x, SN.feetY(b.z, 0) - b.h * 0.5, 40, "#f4ecc6");
+            spawnPopup(b.x, SN.feetY(b.z, 0) - b.h, "+2500");
+            SN.state.flash = 0.9;
+            SN.state.shake = Math.max(SN.state.shake, 18);
+            SN.state.hitStop = Math.max(SN.state.hitStop, 140);
+            SN.Sound.sfx.bossDown();
+            SN.state.boss = null;
+            SN.endGame(true); // boss only exists on the finale stage → victory
         }
-        updateHud();
+        SN.updateHud();
     }
-    function hurtPlayer() {
-        const p = state.player;
-        if (nowMs < p.hurtUntil) {
+    SN.damageBoss = damageBoss;
+    // Called only when an enemy/boss strike actually lands. i-frames (iframesMs) make the player
+    // invulnerable for ~1s afterwards; hitstun briefly takes control away and shoves them back,
+    // away from the attacker — TMNT/Streets-of-Rage style.
+    function hurtPlayer(srcX, srcZ, power = SN.CONFIG.playerKnock) {
+        const p = SN.state.player;
+        if (SN.nowMs < p.hurtUntil) {
             return;
-        }
-        p.hurtUntil = nowMs + CONFIG.iframesMs;
+        } // still invulnerable from the last hit
+        p.hurtUntil = SN.nowMs + SN.CONFIG.iframesMs;
+        p.hitstunUntil = SN.nowMs + SN.CONFIG.hitstunMs;
         p.lives--;
-        state.combo = 0;
-        state.flash = Math.max(state.flash, 0.4);
-        state.shake = Math.max(state.shake, 7);
-        Sound.sfx.hurt();
-        updateHud();
+        SN.state.combo = 0;
+        const dirX = srcX != null ? (Math.sign(p.x - srcX) || -p.facing) : -p.facing;
+        p.knockVx = dirX * power;
+        p.knockVz = srcZ != null ? (Math.sign(p.z - srcZ) || 0) * power * 0.4 : 0;
+        p.anim = "hurt";
+        p.animStart = SN.nowMs;
+        SN.state.flash = Math.max(SN.state.flash, 0.4);
+        SN.state.shake = Math.max(SN.state.shake, 9);
+        SN.state.hitStop = Math.max(SN.state.hitStop, SN.CONFIG.hitStopMs);
+        SN.Sound.sfx.hurt();
+        SN.updateHud();
         if (p.lives <= 0) {
-            endGame(false);
+            SN.endGame(false);
         }
     }
+    SN.hurtPlayer = hurtPlayer;
     function spawnDust(x, screenYy, n, color) {
         for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 140;
-            state.dust.push({ x, y: screenYy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: 0, max: 0.45 + Math.random() * 0.4, color: color || "#c9b8d6" });
+            SN.state.dust.push({ x, y: screenYy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: 0, max: 0.45 + Math.random() * 0.4, color: color || "#c9b8d6" });
         }
     }
-    function spawnPopup(x, screenYy, text) { state.popups.push({ x, y: screenYy, text, life: 0, max: 0.8, vy: -60 }); }
+    SN.spawnDust = spawnDust;
+    function spawnPopup(x, screenYy, text) { SN.state.popups.push({ x, y: screenYy, text, life: 0, max: 0.8, vy: -60 }); }
+    SN.spawnPopup = spawnPopup;
     function applyPickup(pk) {
-        const p = state.player;
+        const p = SN.state.player;
         if (pk.type === "heart") {
-            p.lives = Math.min(CONFIG.maxLives, p.lives + 1);
+            p.lives = Math.min(SN.CONFIG.maxLives, p.lives + 1);
         }
         else if (pk.type === "crossbow") {
-            p.crossbowUntil = nowMs + CONFIG.crossbowMs;
+            p.crossbowUntil = SN.nowMs + SN.CONFIG.crossbowMs;
         }
         else if (pk.type === "scythe") {
-            p.scytheUntil = nowMs + CONFIG.scytheMs;
+            p.scytheUntil = SN.nowMs + SN.CONFIG.scytheMs;
         }
         else if (pk.type === "holy") {
-            state.flash = 0.7;
-            for (const e of state.enemies) {
-                if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < CONFIG.holyRadius) {
+            SN.state.flash = 0.7;
+            for (const e of SN.state.enemies) {
+                if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < SN.CONFIG.holyRadius) {
                     e.alive = false;
-                    state.defeatedThisStage++;
-                    state.score += Math.round(e.def.points * 0.5);
-                    spawnDust(e.x, feetY(e.z, 0) - e.h * 0.5, 14, "#f4ecc6");
+                    SN.state.defeatedThisStage++;
+                    SN.state.score += Math.round(e.def.points * 0.5);
+                    spawnDust(e.x, SN.feetY(e.z, 0) - e.h * 0.5, 14, "#f4ecc6");
                 }
             }
         }
-        Sound.sfx.pickup();
-        updateHud();
+        SN.Sound.sfx.pickup();
+        SN.updateHud();
     }
-    // ---- Update -----------------------------------------------------------
+    SN.applyPickup = applyPickup;
+})(SN || (SN = {}));
+/*
+ * Stake Night — the per-frame simulation: player movement/jump, camera, spawning cadence,
+ * enemy AI + contact, projectiles, pickups, particles, the boss, and the stage-clear flow.
+ */
+var SN;
+(function (SN) {
     function update(dt) {
-        state.elapsed += dt * 1000;
-        const p = state.player;
-        const dirX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-        const dirZ = (input.down ? 1 : 0) - (input.up ? 1 : 0);
-        p.x += dirX * CONFIG.moveSpeed * dt;
-        p.z += dirZ * CONFIG.moveSpeed * CONFIG.depthScale * dt;
-        p.z = Math.max(0, Math.min(floorDepth(), p.z));
-        if (dirX !== 0) {
-            p.facing = dirX;
+        SN.state.elapsed += dt * 1000;
+        const p = SN.state.player;
+        if (SN.nowMs < p.hitstunUntil) {
+            // Knocked back and briefly out of control after a hit.
+            p.x += p.knockVx * dt;
+            p.z += p.knockVz * dt;
+            const kf = Math.min(1, SN.CONFIG.knockFriction * dt);
+            p.knockVx -= p.knockVx * kf;
+            p.knockVz -= p.knockVz * kf;
+            p.z = Math.max(0, Math.min(SN.floorDepth(), p.z));
+            p.moving = false;
         }
-        p.moving = (dirX !== 0 || dirZ !== 0);
-        const canCoyote = p.onGround || (nowMs - p.lastGroundMs) < CONFIG.coyoteMs;
-        if (nowMs - input.jumpBufferedAt < CONFIG.jumpBufferMs && canCoyote) {
-            p.vy = CONFIG.jumpVel;
-            p.onGround = false;
-            input.jumpBufferedAt = -1e9;
-            p.lastGroundMs = -1e9;
-            Sound.sfx.jump();
+        else {
+            const dirX = (SN.input.right ? 1 : 0) - (SN.input.left ? 1 : 0);
+            const dirZ = (SN.input.down ? 1 : 0) - (SN.input.up ? 1 : 0);
+            p.x += dirX * SN.CONFIG.moveSpeed * dt;
+            p.z += dirZ * SN.CONFIG.moveSpeed * SN.CONFIG.depthScale * dt;
+            p.z = Math.max(0, Math.min(SN.floorDepth(), p.z));
+            if (dirX !== 0) {
+                p.facing = dirX;
+            }
+            p.moving = (dirX !== 0 || dirZ !== 0);
+            const canCoyote = p.onGround || (SN.nowMs - p.lastGroundMs) < SN.CONFIG.coyoteMs;
+            if (SN.nowMs - SN.input.jumpBufferedAt < SN.CONFIG.jumpBufferMs && canCoyote) {
+                p.vy = SN.CONFIG.jumpVel;
+                p.onGround = false;
+                SN.input.jumpBufferedAt = -1e9;
+                p.lastGroundMs = -1e9;
+                SN.Sound.sfx.jump();
+            }
         }
-        p.vy -= CONFIG.gravity * dt;
+        p.vy -= SN.CONFIG.gravity * dt;
         p.y += p.vy * dt;
         p.onGround = false;
         if (p.y <= 0) {
             p.y = 0;
             p.vy = 0;
             p.onGround = true;
-            p.lastGroundMs = nowMs;
+            p.lastGroundMs = SN.nowMs;
         }
-        if (nowMs >= p.attackUntil) {
-            const want = nowMs < p.hurtUntil ? "hurt" : (p.moving ? "walk" : "idle");
+        if (SN.nowMs >= p.attackUntil) {
+            const want = SN.nowMs < p.hurtUntil ? "hurt" : (p.moving ? "walk" : "idle");
             if (p.anim !== want) {
                 p.anim = want;
-                p.animStart = nowMs;
+                p.animStart = SN.nowMs;
             }
         }
-        state.camX += (p.x - viewW * 0.5 - state.camX) * Math.min(1, CONFIG.camLerp * dt);
+        SN.state.camX += (p.x - SN.viewW * 0.5 - SN.state.camX) * Math.min(1, SN.CONFIG.camLerp * dt);
         // Spawn toward this stage's quota (combat stages only).
-        if (state.phase === "playing" && !stage().boss && state.spawnedThisStage < stage().quota) {
-            state.spawnTimer -= dt * 1000;
-            if (state.spawnTimer <= 0) {
-                spawnEnemy();
-                state.spawnTimer = CONFIG.spawnStartMs + (CONFIG.spawnMinMs - CONFIG.spawnStartMs) * difficultyT();
+        if (SN.state.phase === "playing" && !SN.stage().boss && SN.state.spawnedThisStage < SN.stage().quota) {
+            SN.state.spawnTimer -= dt * 1000;
+            if (SN.state.spawnTimer <= 0) {
+                SN.spawnEnemy();
+                SN.state.spawnTimer = SN.CONFIG.spawnStartMs + (SN.CONFIG.spawnMinMs - SN.CONFIG.spawnStartMs) * SN.difficultyT();
             }
         }
-        state.pickupTimer -= dt * 1000;
-        if (state.pickupTimer <= 0) {
-            spawnPickup();
-            state.pickupTimer = CONFIG.pickupEveryMs;
+        SN.state.pickupTimer -= dt * 1000;
+        if (SN.state.pickupTimer <= 0) {
+            SN.spawnPickup();
+            SN.state.pickupTimer = SN.CONFIG.pickupEveryMs;
         }
-        // Enemies: knockback while stunned, else swarm the player in x+z.
-        for (const e of state.enemies) {
+        // Enemies: knockback while stunned, else run the attack state machine — chase to a
+        // standoff distance, telegraph a wind-up, strike, recover. Touching the player never
+        // damages; only a landed strike does, and the wind-up is a real window to dodge.
+        let attackers = 0;
+        for (const e of SN.state.enemies) {
+            if (e.alive && (e.phase === "windup" || e.phase === "active")) {
+                attackers++;
+            }
+        }
+        for (const e of SN.state.enemies) {
             if (!e.alive) {
                 continue;
             }
-            if (nowMs < e.stunUntil) {
+            if (SN.nowMs < e.stunUntil) {
                 e.x += e.vx * dt;
                 e.z += e.vz * dt;
-                const f = Math.min(1, CONFIG.knockFriction * dt);
+                const f = Math.min(1, SN.CONFIG.knockFriction * dt);
                 e.vx -= e.vx * f;
                 e.vz -= e.vz * f;
-                e.z = Math.max(0, Math.min(floorDepth(), e.z));
+                e.z = Math.max(0, Math.min(SN.floorDepth(), e.z));
+                continue;
             }
-            else {
-                const dx = p.x - e.x, dz = p.z - e.z, dist = Math.hypot(dx, dz) || 1;
-                e.x += (dx / dist) * e.def.speed * dt;
-                e.z += (dz / dist) * e.def.speed * CONFIG.depthScale * dt;
-                e.wobble += dt * 6;
-                if (Math.abs(e.x - p.x) < (e.w + p.w) * 0.5 && Math.abs(e.z - p.z) < 20 && p.y < 30 && nowMs > e.contactUntil) {
-                    e.contactUntil = nowMs + 700;
-                    hurtPlayer();
+            const dx = p.x - e.x, dz = p.z - e.z;
+            const adx = Math.abs(dx), adz = Math.abs(dz);
+            e.wobble += dt * 6;
+            if (e.phase === "chase") {
+                const aligned = adx < SN.CONFIG.enemyAttackRangeX && adz < SN.CONFIG.enemyAttackBandZ;
+                if (aligned && SN.nowMs > e.phaseUntil && attackers < SN.CONFIG.maxAttackers) {
+                    e.phase = "windup";
+                    e.phaseUntil = SN.nowMs + e.def.windup;
+                    attackers++;
+                    e.anim = "attack";
+                    e.animStart = SN.nowMs;
+                }
+                else {
+                    // Close in along x only until standoff, and align in z — keeps them spaced
+                    // around the player instead of body-blocking on one point.
+                    if (adx > SN.CONFIG.enemyStandoff) {
+                        e.x += Math.sign(dx) * e.def.speed * dt;
+                    }
+                    if (adz > 2) {
+                        e.z += Math.sign(dz) * e.def.speed * SN.CONFIG.depthScale * dt;
+                    }
+                    if (e.anim !== "walk") {
+                        e.anim = "walk";
+                        e.animStart = SN.nowMs;
+                    }
+                }
+            }
+            else if (e.phase === "windup") {
+                if (SN.nowMs >= e.phaseUntil) {
+                    // The strike resolves now; a small lunge sells it. Damage only if the player
+                    // is still in reach (they had the whole wind-up to step out) and not airborne.
+                    e.x += Math.sign(dx || 1) * 6;
+                    if (adx < SN.CONFIG.enemyAttackRangeX + e.w * 0.4 && adz < SN.CONFIG.enemyAttackBandZ && p.y < 42) {
+                        SN.hurtPlayer(e.x, e.z, e.def.knock);
+                    }
+                    else {
+                        SN.Sound.sfx.whiff();
+                    }
+                    e.phase = "active";
+                    e.phaseUntil = SN.nowMs + SN.CONFIG.enemyActiveMs;
+                }
+            }
+            else if (e.phase === "active") {
+                if (SN.nowMs >= e.phaseUntil) {
+                    e.phase = "recover";
+                    e.phaseUntil = SN.nowMs + e.def.recover;
+                    e.anim = "idle";
+                    e.animStart = SN.nowMs;
+                }
+            }
+            else { // recover
+                if (SN.nowMs >= e.phaseUntil) {
+                    e.phase = "chase";
                 }
             }
         }
-        state.enemies = state.enemies.filter(e => e.alive);
-        if (state.boss) {
+        // Gentle separation along z so vamps fan out instead of stacking (skip stunned/striking).
+        for (const e of SN.state.enemies) {
+            if (!e.alive || SN.nowMs < e.stunUntil || e.phase === "windup" || e.phase === "active") {
+                continue;
+            }
+            for (const o of SN.state.enemies) {
+                if (o === e || !o.alive) {
+                    continue;
+                }
+                if (Math.abs(e.x - o.x) < SN.CONFIG.enemySeparation && Math.abs(e.z - o.z) < SN.CONFIG.enemySeparation * 0.7) {
+                    e.z += (Math.sign(e.z - o.z) || 1) * (SN.CONFIG.enemySeparation - Math.abs(e.z - o.z)) * dt * 3;
+                    e.z = Math.max(0, Math.min(SN.floorDepth(), e.z));
+                }
+            }
+        }
+        SN.state.enemies = SN.state.enemies.filter(e => e.alive);
+        if (SN.state.boss) {
             updateBoss(dt);
         }
         // Bolts / thrown stakes.
-        for (const b of state.bolts) {
+        for (const b of SN.state.bolts) {
             b.x += b.vx * dt;
             b.spin += dt * 18;
-            for (const e of state.enemies) {
+            for (const e of SN.state.enemies) {
                 if (e.alive && Math.abs(e.x - b.x) < e.w * 0.6 && Math.abs(e.z - b.z) < 22) {
-                    hitEnemy(e, projHitId--);
+                    SN.hitEnemy(e, SN.projHitId--);
                     b.alive = false;
                     break;
                 }
             }
-            if (b.alive && state.boss && Math.abs(state.boss.x - b.x) < state.boss.w * 0.6 && Math.abs(state.boss.z - b.z) < 26) {
-                damageBoss(1);
+            if (b.alive && SN.state.boss && Math.abs(SN.state.boss.x - b.x) < SN.state.boss.w * 0.6 && Math.abs(SN.state.boss.z - b.z) < 26) {
+                SN.damageBoss(1);
                 b.alive = false;
             }
-            if (Math.abs(b.x - p.x) > viewW) {
+            if (Math.abs(b.x - p.x) > SN.viewW) {
                 b.alive = false;
             }
         }
-        state.bolts = state.bolts.filter(b => b.alive);
-        for (const pk of state.pickups) {
+        SN.state.bolts = SN.state.bolts.filter(b => b.alive);
+        for (const pk of SN.state.pickups) {
             pk.bob += dt * 4;
             if (Math.abs(pk.x - p.x) < 28 && Math.abs(pk.z - p.z) < 24) {
                 pk.taken = true;
-                applyPickup(pk);
+                SN.applyPickup(pk);
             }
         }
-        state.pickups = state.pickups.filter(pk => !pk.taken && Math.abs(pk.x - p.x) < viewW * 1.4 && nowMs - pk.born < 20000);
-        for (const d of state.dust) {
+        SN.state.pickups = SN.state.pickups.filter(pk => !pk.taken && Math.abs(pk.x - p.x) < SN.viewW * 1.4 && SN.nowMs - pk.born < 20000);
+        for (const d of SN.state.dust) {
             d.life += dt;
             d.x += d.vx * dt;
             d.y += d.vy * dt;
             d.vy += 220 * dt;
         }
-        state.dust = state.dust.filter(d => d.life < d.max);
-        for (const pop of state.popups) {
+        SN.state.dust = SN.state.dust.filter(d => d.life < d.max);
+        for (const pop of SN.state.popups) {
             pop.life += dt;
             pop.y += pop.vy * dt;
             pop.vy += 40 * dt;
         }
-        state.popups = state.popups.filter(pop => pop.life < pop.max);
-        if (state.flash > 0) {
-            state.flash = Math.max(0, state.flash - dt * 2);
+        SN.state.popups = SN.state.popups.filter(pop => pop.life < pop.max);
+        if (SN.state.flash > 0) {
+            SN.state.flash = Math.max(0, SN.state.flash - dt * 2);
         }
-        if (state.shake > 0) {
-            state.shake = Math.max(0, state.shake - dt * 40);
+        if (SN.state.shake > 0) {
+            SN.state.shake = Math.max(0, SN.state.shake - dt * 40);
         }
-        if (state.banner && nowMs > state.banner.until) {
-            state.banner = null;
+        if (SN.state.banner && SN.nowMs > SN.state.banner.until) {
+            SN.state.banner = null;
         }
-        const powerActive = nowMs < p.crossbowUntil || nowMs < p.scytheUntil;
+        const powerActive = SN.nowMs < p.crossbowUntil || SN.nowMs < p.scytheUntil;
         if (powerActive) {
             p._wasPower = true;
-            updateHud();
+            SN.updateHud();
         }
         else if (p._wasPower) {
             p._wasPower = false;
-            updateHud();
+            SN.updateHud();
         }
         // --- Stage flow: clear → open exit; walk east → next stage ---
-        if (state.phase === "playing" && !stage().boss && state.defeatedThisStage >= stage().quota && state.enemies.length === 0 && !state.exitOpen) {
-            state.exitOpen = true;
-            state.exitX = p.x + CONFIG.exitWalk;
-            state.banner = { text: "Cleared — head east →", until: nowMs + 4000 };
-            state.phase = "cleared";
+        if (SN.state.phase === "playing" && !SN.stage().boss && SN.state.defeatedThisStage >= SN.stage().quota && SN.state.enemies.length === 0 && !SN.state.exitOpen) {
+            SN.state.exitOpen = true;
+            SN.state.exitX = p.x + SN.CONFIG.exitWalk;
+            SN.state.banner = { text: "Cleared — head east →", until: SN.nowMs + 4000 };
+            SN.state.phase = "cleared";
         }
-        if (state.phase === "cleared" && p.x >= state.exitX) {
-            advanceStage();
+        if (SN.state.phase === "cleared" && p.x >= SN.state.exitX) {
+            SN.advanceStage();
         }
     }
+    SN.update = update;
     function updateBoss(dt) {
-        const b = state.boss;
+        const b = SN.state.boss;
         if (!b) {
             return;
         }
-        const p = state.player;
-        if (nowMs < b.dashUntil) {
+        const p = SN.state.player;
+        if (SN.nowMs < b.dashUntil) {
             b.x += b.dashVx * dt;
             b.z += b.dashVz * dt;
         }
         else {
             const dx = p.x - b.x, dz = p.z - b.z, dist = Math.hypot(dx, dz) || 1;
-            b.x += (dx / dist) * CONFIG.bossSpeed * dt;
-            b.z += (dz / dist) * CONFIG.bossSpeed * CONFIG.depthScale * dt;
-            if (nowMs >= b.nextDashAt) {
-                b.dashUntil = nowMs + 380;
-                b.dashVx = (dx / dist) * CONFIG.bossDashSpeed;
-                b.dashVz = (dz / dist) * CONFIG.bossDashSpeed * CONFIG.depthScale;
-                b.nextDashAt = nowMs + 2200;
+            b.x += (dx / dist) * SN.CONFIG.bossSpeed * dt;
+            b.z += (dz / dist) * SN.CONFIG.bossSpeed * SN.CONFIG.depthScale * dt;
+            if (SN.nowMs >= b.nextDashAt) {
+                b.dashUntil = SN.nowMs + 380;
+                b.dashVx = (dx / dist) * SN.CONFIG.bossDashSpeed;
+                b.dashVz = (dz / dist) * SN.CONFIG.bossDashSpeed * SN.CONFIG.depthScale;
+                b.nextDashAt = SN.nowMs + 2200;
             }
         }
-        b.z = Math.max(0, Math.min(floorDepth(), b.z));
-        if (Math.abs(b.x - p.x) < (b.w + p.w) * 0.5 && Math.abs(b.z - p.z) < 24 && nowMs > b.contactUntil) {
-            b.contactUntil = nowMs + 800;
-            hurtPlayer();
+        b.z = Math.max(0, Math.min(SN.floorDepth(), b.z));
+        if (Math.abs(b.x - p.x) < (b.w + p.w) * 0.5 && Math.abs(b.z - p.z) < 24 && SN.nowMs > b.contactUntil) {
+            b.contactUntil = SN.nowMs + 800;
+            SN.hurtPlayer(b.x, b.z, SN.CONFIG.playerKnock * 1.6);
         }
     }
-    // ---- Render -----------------------------------------------------------
+    SN.updateBoss = updateBoss;
+})(SN || (SN = {}));
+/*
+ * Stake Night — the whole frame: parallax sky/stars/moon/graves, the depth-sorted actor pass,
+ * projectiles, particles, score popups, the EXIT arrow, and screen flash/banner. Actor draws
+ * use sprite sheets when loaded (drawSheet) and fall back to procedural shapes otherwise.
+ */
+var SN;
+(function (SN) {
     function render() {
-        const ftY = floorTopY();
-        const pal = stage().palette;
+        const ftY = SN.floorTopY();
+        const pal = SN.stage().palette;
         const OS = 26;
-        const shx = state.shake > 0 ? (Math.random() * 2 - 1) * state.shake : 0;
-        const shy = state.shake > 0 ? (Math.random() * 2 - 1) * state.shake : 0;
-        ctx.save();
-        ctx.translate(shx, shy);
-        const sky = ctx.createLinearGradient(0, 0, 0, ftY);
+        const shx = SN.state.shake > 0 ? (Math.random() * 2 - 1) * SN.state.shake : 0;
+        const shy = SN.state.shake > 0 ? (Math.random() * 2 - 1) * SN.state.shake : 0;
+        SN.ctx.save();
+        SN.ctx.translate(shx, shy);
+        const sky = SN.ctx.createLinearGradient(0, 0, 0, ftY);
         sky.addColorStop(0, pal.sky0);
         sky.addColorStop(1, pal.sky1);
-        ctx.fillStyle = sky;
-        ctx.fillRect(-OS, -OS, viewW + OS * 2, ftY + OS);
-        for (const s of state.stars) {
-            const px = ((s.x - state.camX * s.par) % viewW + viewW) % viewW;
-            ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw + nowMs / 600));
-            ctx.fillStyle = "#fdf6d8";
-            ctx.beginPath();
-            ctx.arc(px, s.y, s.r, 0, Math.PI * 2);
-            ctx.fill();
+        SN.ctx.fillStyle = sky;
+        SN.ctx.fillRect(-OS, -OS, SN.viewW + OS * 2, ftY + OS);
+        for (const s of SN.state.stars) {
+            const px = ((s.x - SN.state.camX * s.par) % SN.viewW + SN.viewW) % SN.viewW;
+            SN.ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(s.tw + SN.nowMs / 600));
+            SN.ctx.fillStyle = "#fdf6d8";
+            SN.ctx.beginPath();
+            SN.ctx.arc(px, s.y, s.r, 0, Math.PI * 2);
+            SN.ctx.fill();
         }
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#f4ecc6";
-        ctx.beginPath();
-        ctx.arc(viewW * 0.8, ftY * 0.26, 34, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(11,10,20,0.55)";
-        ctx.beginPath();
-        ctx.arc(viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = pal.grave;
-        for (const g of state.graves) {
-            const gx = g.x - state.camX * g.par;
-            const px = ((gx % (viewW + 400)) + (viewW + 400)) % (viewW + 400) - 200;
-            ctx.beginPath();
-            ctx.moveTo(px - g.w / 2, ftY);
-            ctx.lineTo(px - g.w / 2, ftY - g.h * 0.55);
-            ctx.arc(px, ftY - g.h * 0.55, g.w / 2, Math.PI, 0);
-            ctx.lineTo(px + g.w / 2, ftY);
-            ctx.closePath();
-            ctx.fill();
+        SN.ctx.globalAlpha = 1;
+        SN.ctx.fillStyle = "#f4ecc6";
+        SN.ctx.beginPath();
+        SN.ctx.arc(SN.viewW * 0.8, ftY * 0.26, 34, 0, Math.PI * 2);
+        SN.ctx.fill();
+        SN.ctx.fillStyle = "rgba(11,10,20,0.55)";
+        SN.ctx.beginPath();
+        SN.ctx.arc(SN.viewW * 0.8 + 12, ftY * 0.26 - 6, 30, 0, Math.PI * 2);
+        SN.ctx.fill();
+        SN.ctx.fillStyle = pal.grave;
+        for (const g of SN.state.graves) {
+            const gx = g.x - SN.state.camX * g.par;
+            const px = ((gx % (SN.viewW + 400)) + (SN.viewW + 400)) % (SN.viewW + 400) - 200;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(px - g.w / 2, ftY);
+            SN.ctx.lineTo(px - g.w / 2, ftY - g.h * 0.55);
+            SN.ctx.arc(px, ftY - g.h * 0.55, g.w / 2, Math.PI, 0);
+            SN.ctx.lineTo(px + g.w / 2, ftY);
+            SN.ctx.closePath();
+            SN.ctx.fill();
         }
-        const floor = ctx.createLinearGradient(0, ftY, 0, ftY + floorDepth());
+        const floor = SN.ctx.createLinearGradient(0, ftY, 0, ftY + SN.floorDepth());
         floor.addColorStop(0, pal.floor0);
         floor.addColorStop(1, pal.floor1);
-        ctx.fillStyle = floor;
-        ctx.fillRect(-OS, ftY, viewW + OS * 2, floorDepth() + OS);
-        ctx.strokeStyle = "rgba(255,255,255,0.06)";
-        ctx.beginPath();
-        ctx.moveTo(0, ftY);
-        ctx.lineTo(viewW, ftY);
-        ctx.stroke();
-        ctx.fillStyle = "rgba(0,0,0,0.28)";
-        const shadow = (x, z, w) => { ctx.beginPath(); ctx.ellipse(sx(x), groundY(z), w * 0.5, w * 0.22, 0, 0, Math.PI * 2); ctx.fill(); };
-        for (const e of state.enemies) {
+        SN.ctx.fillStyle = floor;
+        SN.ctx.fillRect(-OS, ftY, SN.viewW + OS * 2, SN.floorDepth() + OS);
+        SN.ctx.strokeStyle = "rgba(255,255,255,0.06)";
+        SN.ctx.beginPath();
+        SN.ctx.moveTo(0, ftY);
+        SN.ctx.lineTo(SN.viewW, ftY);
+        SN.ctx.stroke();
+        SN.ctx.fillStyle = "rgba(0,0,0,0.28)";
+        const shadow = (x, z, w) => { SN.ctx.beginPath(); SN.ctx.ellipse(SN.sx(x), SN.groundY(z), w * 0.5, w * 0.22, 0, 0, Math.PI * 2); SN.ctx.fill(); };
+        for (const e of SN.state.enemies) {
             if (e.alive) {
                 shadow(e.x, e.z, e.w);
             }
         }
-        for (const pk of state.pickups) {
+        for (const pk of SN.state.pickups) {
             shadow(pk.x, pk.z, 22);
         }
-        if (state.boss) {
-            shadow(state.boss.x, state.boss.z, state.boss.w);
+        if (SN.state.boss) {
+            shadow(SN.state.boss.x, SN.state.boss.z, SN.state.boss.w);
         }
-        shadow(state.player.x, state.player.z, state.player.w);
+        shadow(SN.state.player.x, SN.state.player.z, SN.state.player.w);
         const list = [];
-        for (const e of state.enemies) {
+        for (const e of SN.state.enemies) {
             if (e.alive) {
                 list.push({ z: e.z, render: () => drawEnemy(e) });
             }
         }
-        for (const pk of state.pickups) {
+        for (const pk of SN.state.pickups) {
             list.push({ z: pk.z, render: () => drawPickup(pk) });
         }
-        if (state.boss) {
-            const b = state.boss;
+        if (SN.state.boss) {
+            const b = SN.state.boss;
             list.push({ z: b.z, render: () => drawBoss(b) });
         }
-        list.push({ z: state.player.z, render: drawBuffy });
+        list.push({ z: SN.state.player.z, render: drawBuffy });
         list.sort((a, b) => a.z - b.z);
         for (const d of list) {
             d.render();
         }
         // Projectiles.
-        for (const b of state.bolts) {
-            const bx = sx(b.x), by = feetY(b.z, b.y);
+        for (const b of SN.state.bolts) {
+            const bx = SN.sx(b.x), by = SN.feetY(b.z, b.y);
             if (b.kind === "stake") {
-                ctx.save();
-                ctx.translate(bx, by);
-                ctx.rotate(b.spin);
-                ctx.fillStyle = "#8a5a2b";
-                ctx.fillRect(-9, -2, 18, 4);
-                ctx.fillStyle = "#d9b27a";
-                ctx.fillRect(6, -2, 3, 4);
-                ctx.restore();
+                SN.ctx.save();
+                SN.ctx.translate(bx, by);
+                SN.ctx.rotate(b.spin);
+                SN.ctx.fillStyle = "#8a5a2b";
+                SN.ctx.fillRect(-9, -2, 18, 4);
+                SN.ctx.fillStyle = "#d9b27a";
+                SN.ctx.fillRect(6, -2, 3, 4);
+                SN.ctx.restore();
             }
             else {
-                ctx.fillStyle = "#e8c659";
-                ctx.fillRect(bx - 8, by - 1.5, 16, 3);
+                SN.ctx.fillStyle = "#e8c659";
+                SN.ctx.fillRect(bx - 8, by - 1.5, 16, 3);
             }
         }
-        for (const d of state.dust) {
+        for (const d of SN.state.dust) {
             const k = 1 - d.life / d.max;
-            ctx.globalAlpha = Math.max(0, k);
-            ctx.fillStyle = d.color;
-            ctx.beginPath();
-            ctx.arc(sx(d.x), d.y, 2 + k * 3, 0, Math.PI * 2);
-            ctx.fill();
+            SN.ctx.globalAlpha = Math.max(0, k);
+            SN.ctx.fillStyle = d.color;
+            SN.ctx.beginPath();
+            SN.ctx.arc(SN.sx(d.x), d.y, 2 + k * 3, 0, Math.PI * 2);
+            SN.ctx.fill();
         }
-        ctx.globalAlpha = 1;
-        ctx.font = "bold 16px Georgia, serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        for (const pop of state.popups) {
-            ctx.globalAlpha = Math.max(0, 1 - pop.life / pop.max);
-            ctx.fillStyle = "#f4ecc6";
-            ctx.fillText(pop.text, sx(pop.x), pop.y);
+        SN.ctx.globalAlpha = 1;
+        SN.ctx.font = "bold 16px Georgia, serif";
+        SN.ctx.textAlign = "center";
+        SN.ctx.textBaseline = "middle";
+        for (const pop of SN.state.popups) {
+            SN.ctx.globalAlpha = Math.max(0, 1 - pop.life / pop.max);
+            SN.ctx.fillStyle = "#f4ecc6";
+            SN.ctx.fillText(pop.text, SN.sx(pop.x), pop.y);
         }
-        ctx.globalAlpha = 1;
+        SN.ctx.globalAlpha = 1;
         // EXIT arrow (when a scene is cleared).
-        if (state.exitOpen) {
-            const ax = viewW - 60, ay = ftY + floorDepth() * 0.45, pulse = 0.6 + 0.4 * Math.sin(nowMs / 200);
-            ctx.globalAlpha = pulse;
-            ctx.fillStyle = "#e8c659";
-            ctx.beginPath();
-            ctx.moveTo(ax - 24, ay - 18);
-            ctx.lineTo(ax + 10, ay);
-            ctx.lineTo(ax - 24, ay + 18);
-            ctx.closePath();
-            ctx.fill();
-            ctx.fillRect(ax - 44, ay - 7, 22, 14);
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = "#e8c659";
-            ctx.font = "bold 13px Georgia, serif";
-            ctx.textAlign = "center";
-            ctx.fillText("EXIT", ax - 14, ay - 28);
+        if (SN.state.exitOpen) {
+            const ax = SN.viewW - 60, ay = ftY + SN.floorDepth() * 0.45, pulse = 0.6 + 0.4 * Math.sin(SN.nowMs / 200);
+            SN.ctx.globalAlpha = pulse;
+            SN.ctx.fillStyle = "#e8c659";
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(ax - 24, ay - 18);
+            SN.ctx.lineTo(ax + 10, ay);
+            SN.ctx.lineTo(ax - 24, ay + 18);
+            SN.ctx.closePath();
+            SN.ctx.fill();
+            SN.ctx.fillRect(ax - 44, ay - 7, 22, 14);
+            SN.ctx.globalAlpha = 1;
+            SN.ctx.fillStyle = "#e8c659";
+            SN.ctx.font = "bold 13px Georgia, serif";
+            SN.ctx.textAlign = "center";
+            SN.ctx.fillText("EXIT", ax - 14, ay - 28);
         }
-        ctx.restore();
-        if (state.flash > 0) {
-            ctx.fillStyle = `rgba(255,240,220,${state.flash * 0.5})`;
-            ctx.fillRect(0, 0, viewW, viewH);
+        SN.ctx.restore();
+        if (SN.state.flash > 0) {
+            SN.ctx.fillStyle = `rgba(255,240,220,${SN.state.flash * 0.5})`;
+            SN.ctx.fillRect(0, 0, SN.viewW, SN.viewH);
         }
-        if (state.banner) {
-            ctx.globalAlpha = Math.min(1, (state.banner.until - nowMs) / 500);
-            ctx.fillStyle = "#ffd76b";
-            ctx.font = "italic bold 26px Georgia, serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(state.banner.text, viewW / 2, viewH * 0.26);
-            ctx.globalAlpha = 1;
+        if (SN.state.banner) {
+            SN.ctx.globalAlpha = Math.min(1, (SN.state.banner.until - SN.nowMs) / 500);
+            SN.ctx.fillStyle = "#ffd76b";
+            SN.ctx.font = "italic bold 26px Georgia, serif";
+            SN.ctx.textAlign = "center";
+            SN.ctx.textBaseline = "middle";
+            SN.ctx.fillText(SN.state.banner.text, SN.viewW / 2, SN.viewH * 0.26);
+            SN.ctx.globalAlpha = 1;
         }
     }
+    SN.render = render;
     function drawBuffy() {
-        const p = state.player;
-        const fx = sx(p.x), fy = feetY(p.z, p.y);
-        if (drawSheet("buffy", p.anim, p.animStart, fx, fy, p.facing)) {
+        const p = SN.state.player;
+        const fx = SN.sx(p.x), fy = SN.feetY(p.z, p.y);
+        if (SN.drawSheet("buffy", p.anim, p.animStart, fx, fy, p.facing)) {
             return;
         }
-        const lunging = nowMs < p.attackUntil;
-        const hurtBlink = nowMs < p.hurtUntil && (Math.floor(nowMs / 80) % 2 === 0);
-        ctx.save();
-        ctx.translate(fx, fy);
-        ctx.scale(p.facing, 1);
+        const lunging = SN.nowMs < p.attackUntil;
+        const hurtBlink = SN.nowMs < p.hurtUntil && (Math.floor(SN.nowMs / 80) % 2 === 0);
+        SN.ctx.save();
+        SN.ctx.translate(fx, fy);
+        SN.ctx.scale(p.facing, 1);
         if (hurtBlink) {
-            ctx.globalAlpha = 0.4;
+            SN.ctx.globalAlpha = 0.4;
         }
-        ctx.fillStyle = "#27313f";
-        ctx.fillRect(-9, -22, 18, 22);
-        ctx.fillStyle = "#7a2233";
-        ctx.fillRect(-9, -54, 18, 34);
-        ctx.fillStyle = "#f0c9a0";
-        ctx.beginPath();
-        ctx.arc(0, -62, 9, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#e8c659";
-        ctx.beginPath();
-        ctx.arc(0, -64, 9.5, Math.PI, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(-9.5, -64, 4, 12);
-        ctx.fillRect(5.5, -64, 4, 12);
+        SN.ctx.fillStyle = "#27313f";
+        SN.ctx.fillRect(-9, -22, 18, 22);
+        SN.ctx.fillStyle = "#7a2233";
+        SN.ctx.fillRect(-9, -54, 18, 34);
+        SN.ctx.fillStyle = "#f0c9a0";
+        SN.ctx.beginPath();
+        SN.ctx.arc(0, -62, 9, 0, Math.PI * 2);
+        SN.ctx.fill();
+        SN.ctx.fillStyle = "#e8c659";
+        SN.ctx.beginPath();
+        SN.ctx.arc(0, -64, 9.5, Math.PI, Math.PI * 2);
+        SN.ctx.fill();
+        SN.ctx.fillRect(-9.5, -64, 4, 12);
+        SN.ctx.fillRect(5.5, -64, 4, 12);
         const reach = lunging ? 30 : 20;
-        ctx.strokeStyle = "#f0c9a0";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(6, -46);
-        ctx.lineTo(reach, -44);
-        ctx.stroke();
-        if (nowMs < p.crossbowUntil) {
-            ctx.strokeStyle = "#5a4632";
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.moveTo(reach, -48);
-            ctx.lineTo(reach + 4, -40);
-            ctx.stroke();
+        SN.ctx.strokeStyle = "#f0c9a0";
+        SN.ctx.lineWidth = 4;
+        SN.ctx.beginPath();
+        SN.ctx.moveTo(6, -46);
+        SN.ctx.lineTo(reach, -44);
+        SN.ctx.stroke();
+        if (SN.nowMs < p.crossbowUntil) {
+            SN.ctx.strokeStyle = "#5a4632";
+            SN.ctx.lineWidth = 6;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(reach, -48);
+            SN.ctx.lineTo(reach + 4, -40);
+            SN.ctx.stroke();
         }
-        else if (nowMs < p.scytheUntil) {
+        else if (SN.nowMs < p.scytheUntil) {
             const bl = reach + (lunging ? 32 : 26);
-            ctx.strokeStyle = "#6a5238";
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(reach, -44);
-            ctx.lineTo(bl, -44);
-            ctx.stroke();
-            ctx.strokeStyle = "#c7ccd2";
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(bl, -44);
-            ctx.quadraticCurveTo(bl + 6, -58, bl - 8, -60);
-            ctx.stroke();
+            SN.ctx.strokeStyle = "#6a5238";
+            SN.ctx.lineWidth = 4;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(reach, -44);
+            SN.ctx.lineTo(bl, -44);
+            SN.ctx.stroke();
+            SN.ctx.strokeStyle = "#c7ccd2";
+            SN.ctx.lineWidth = 4;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(bl, -44);
+            SN.ctx.quadraticCurveTo(bl + 6, -58, bl - 8, -60);
+            SN.ctx.stroke();
         }
         else {
-            ctx.strokeStyle = "#8a5a2b";
-            ctx.lineWidth = 5;
-            ctx.beginPath();
-            ctx.moveTo(reach, -44);
-            ctx.lineTo(reach + (lunging ? 16 : 14), -44);
-            ctx.stroke();
+            SN.ctx.strokeStyle = "#8a5a2b";
+            SN.ctx.lineWidth = 5;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(reach, -44);
+            SN.ctx.lineTo(reach + (lunging ? 16 : 14), -44);
+            SN.ctx.stroke();
         }
-        ctx.restore();
+        SN.ctx.restore();
     }
+    SN.drawBuffy = drawBuffy;
     function drawEnemy(e) {
-        const fx = sx(e.x), fy = feetY(e.z, e.y);
-        if (drawSheet(e.type, e.anim, e.animStart, fx, fy, Math.sign(state.player.x - e.x) || 1)) {
+        const facing = Math.sign(SN.state.player.x - e.x) || 1;
+        const fx = SN.sx(e.x), fy = SN.feetY(e.z, e.y);
+        if (SN.drawSheet(e.type, e.anim, e.animStart, fx, fy, facing)) {
             return;
         }
+        const winding = e.phase === "windup";
+        const striking = e.phase === "active";
         const bob = Math.sin(e.wobble) * 3;
-        ctx.save();
-        ctx.translate(fx, fy + bob);
-        ctx.fillStyle = "#0f0a1c";
-        ctx.fillRect(-e.w / 2, -22, e.w, 22);
-        ctx.fillStyle = e.def.color;
-        ctx.fillRect(-e.w / 2, -e.h + 10, e.w, e.h - 32);
-        ctx.fillStyle = "#b9a6c4";
-        ctx.beginPath();
-        ctx.arc(0, -e.h + 8, e.w * 0.34, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#ff3b3b";
-        ctx.fillRect(-5, -e.h + 6, 3, 3);
-        ctx.fillRect(2, -e.h + 6, 3, 3);
-        if (e.hp < e.def.hp) {
-            ctx.fillStyle = "#7a2233";
-            ctx.fillRect(-e.w / 2, -e.h + 2, e.w * (e.hp / e.def.hp), 3);
+        const lean = (winding ? -4 : striking ? 6 : 0) * facing; // cock back, then lunge in
+        SN.ctx.save();
+        SN.ctx.translate(fx + lean, fy + bob);
+        // Wind-up telegraph: a pulsing red aura + glowing eyes so the strike is readable/dodgeable.
+        if (winding) {
+            SN.ctx.globalAlpha = 0.3 + 0.35 * Math.abs(Math.sin(SN.nowMs / 60));
+            SN.ctx.fillStyle = "#ff3b3b";
+            SN.ctx.beginPath();
+            SN.ctx.ellipse(0, -e.h * 0.5, e.w * 0.95, e.h * 0.58, 0, 0, Math.PI * 2);
+            SN.ctx.fill();
+            SN.ctx.globalAlpha = 1;
         }
-        ctx.restore();
+        SN.ctx.fillStyle = "#0f0a1c";
+        SN.ctx.fillRect(-e.w / 2, -22, e.w, 22);
+        SN.ctx.fillStyle = e.def.color;
+        SN.ctx.fillRect(-e.w / 2, -e.h + 10, e.w, e.h - 32);
+        SN.ctx.fillStyle = "#b9a6c4";
+        SN.ctx.beginPath();
+        SN.ctx.arc(0, -e.h + 8, e.w * 0.34, 0, Math.PI * 2);
+        SN.ctx.fill();
+        SN.ctx.fillStyle = winding ? "#ffd23b" : "#ff3b3b";
+        SN.ctx.fillRect(-5, -e.h + 6, 3, 3);
+        SN.ctx.fillRect(2, -e.h + 6, 3, 3);
+        // Claw arm: drawn cocked back on the wind-up, slashing forward on the strike frame.
+        const reach = striking ? 22 : winding ? -6 : 8;
+        SN.ctx.save();
+        SN.ctx.scale(facing, 1);
+        SN.ctx.strokeStyle = striking ? "#ff6b6b" : "#cdbcd6";
+        SN.ctx.lineWidth = 4;
+        SN.ctx.beginPath();
+        SN.ctx.moveTo(e.w * 0.28, -e.h * 0.6);
+        SN.ctx.lineTo(e.w * 0.28 + reach, -e.h * 0.6 + (striking ? 6 : 0));
+        SN.ctx.stroke();
+        SN.ctx.restore();
+        if (e.hp < e.def.hp) {
+            SN.ctx.fillStyle = "#7a2233";
+            SN.ctx.fillRect(-e.w / 2, -e.h + 2, e.w * (e.hp / e.def.hp), 3);
+        }
+        SN.ctx.restore();
     }
+    SN.drawEnemy = drawEnemy;
     function drawBoss(b) {
-        const fx = sx(b.x), fy = feetY(b.z, b.y);
-        if (drawSheet("boss", "walk", nowMs, fx, fy, Math.sign(state.player.x - b.x) || 1)) {
+        const fx = SN.sx(b.x), fy = SN.feetY(b.z, b.y);
+        if (SN.drawSheet("boss", "walk", SN.nowMs, fx, fy, Math.sign(SN.state.player.x - b.x) || 1)) {
             return;
         }
-        ctx.save();
-        ctx.translate(fx, fy);
-        ctx.fillStyle = "#0a0610";
-        ctx.fillRect(-b.w / 2, -b.h, b.w, b.h);
-        ctx.fillStyle = "#2a1030";
-        ctx.fillRect(-b.w / 2 + 4, -b.h + 6, b.w - 8, b.h - 30);
-        ctx.fillStyle = "#cdbcd6";
-        ctx.beginPath();
-        ctx.arc(0, -b.h + 16, 18, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#ff2020";
-        ctx.fillRect(-9, -b.h + 12, 6, 6);
-        ctx.fillRect(3, -b.h + 12, 6, 6);
-        ctx.restore();
+        SN.ctx.save();
+        SN.ctx.translate(fx, fy);
+        SN.ctx.fillStyle = "#0a0610";
+        SN.ctx.fillRect(-b.w / 2, -b.h, b.w, b.h);
+        SN.ctx.fillStyle = "#2a1030";
+        SN.ctx.fillRect(-b.w / 2 + 4, -b.h + 6, b.w - 8, b.h - 30);
+        SN.ctx.fillStyle = "#cdbcd6";
+        SN.ctx.beginPath();
+        SN.ctx.arc(0, -b.h + 16, 18, 0, Math.PI * 2);
+        SN.ctx.fill();
+        SN.ctx.fillStyle = "#ff2020";
+        SN.ctx.fillRect(-9, -b.h + 12, 6, 6);
+        SN.ctx.fillRect(3, -b.h + 12, 6, 6);
+        SN.ctx.restore();
     }
+    SN.drawBoss = drawBoss;
     function drawPickup(pk) {
-        const x = sx(pk.x), y = feetY(pk.z, 0) - 18 + Math.sin(pk.bob) * 4;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.fillStyle = "rgba(232,198,89,0.18)";
-        ctx.beginPath();
-        ctx.arc(0, 0, 16, 0, Math.PI * 2);
-        ctx.fill();
+        const x = SN.sx(pk.x), y = SN.feetY(pk.z, 0) - 18 + Math.sin(pk.bob) * 4;
+        SN.ctx.save();
+        SN.ctx.translate(x, y);
+        SN.ctx.fillStyle = "rgba(232,198,89,0.18)";
+        SN.ctx.beginPath();
+        SN.ctx.arc(0, 0, 16, 0, Math.PI * 2);
+        SN.ctx.fill();
         if (pk.type === "heart") {
-            ctx.fillStyle = "#c83b54";
-            ctx.font = "20px serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText("❤", 0, 1);
+            SN.ctx.fillStyle = "#c83b54";
+            SN.ctx.font = "20px serif";
+            SN.ctx.textAlign = "center";
+            SN.ctx.textBaseline = "middle";
+            SN.ctx.fillText("❤", 0, 1);
         }
         else if (pk.type === "crossbow") {
-            ctx.strokeStyle = "#e8c659";
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(-8, -6);
-            ctx.lineTo(8, -6);
-            ctx.moveTo(0, -8);
-            ctx.lineTo(0, 8);
-            ctx.stroke();
+            SN.ctx.strokeStyle = "#e8c659";
+            SN.ctx.lineWidth = 3;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(-8, -6);
+            SN.ctx.lineTo(8, -6);
+            SN.ctx.moveTo(0, -8);
+            SN.ctx.lineTo(0, 8);
+            SN.ctx.stroke();
         }
         else if (pk.type === "scythe") {
-            ctx.strokeStyle = "#6a5238";
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(-2, 9);
-            ctx.lineTo(2, -9);
-            ctx.stroke();
-            ctx.strokeStyle = "#c7ccd2";
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(2, -9);
-            ctx.quadraticCurveTo(-9, -9, -8, 0);
-            ctx.stroke();
+            SN.ctx.strokeStyle = "#6a5238";
+            SN.ctx.lineWidth = 3;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(-2, 9);
+            SN.ctx.lineTo(2, -9);
+            SN.ctx.stroke();
+            SN.ctx.strokeStyle = "#c7ccd2";
+            SN.ctx.lineWidth = 3;
+            SN.ctx.beginPath();
+            SN.ctx.moveTo(2, -9);
+            SN.ctx.quadraticCurveTo(-9, -9, -8, 0);
+            SN.ctx.stroke();
         }
         else {
-            ctx.fillStyle = "#bfe3ff";
-            ctx.fillRect(-5, -8, 10, 14);
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(-3, -11, 6, 4);
+            SN.ctx.fillStyle = "#bfe3ff";
+            SN.ctx.fillRect(-5, -8, 10, 14);
+            SN.ctx.fillStyle = "#fff";
+            SN.ctx.fillRect(-3, -11, 6, 4);
         }
-        ctx.restore();
+        SN.ctx.restore();
     }
-    // ---- HUD --------------------------------------------------------------
-    const hud = document.getElementById("hud");
-    const hudScore = document.getElementById("hud-score");
-    const hudCombo = document.getElementById("hud-combo");
-    const hudLives = document.getElementById("hud-lives");
-    const hudPower = document.getElementById("hud-power");
-    const hudStage = document.getElementById("hud-stage");
-    const bossBar = document.getElementById("boss-bar");
-    const bossName = document.getElementById("boss-name");
-    const bossFill = document.getElementById("boss-hp-fill");
+    SN.drawPickup = drawPickup;
+})(SN || (SN = {}));
+/*
+ * Stake Night — the DOM HUD: score, combo, lives, active power-up timers, the stage label,
+ * and the boss health bar. updateHud() is called whenever those values change.
+ */
+var SN;
+(function (SN) {
+    SN.hud = document.getElementById("hud");
+    SN.hudScore = document.getElementById("hud-score");
+    SN.hudCombo = document.getElementById("hud-combo");
+    SN.hudLives = document.getElementById("hud-lives");
+    SN.hudPower = document.getElementById("hud-power");
+    SN.hudStage = document.getElementById("hud-stage");
+    SN.bossBar = document.getElementById("boss-bar");
+    SN.bossName = document.getElementById("boss-name");
+    SN.bossFill = document.getElementById("boss-hp-fill");
     function updateHud() {
-        hudScore.textContent = state.score.toString().padStart(6, "0");
-        hudCombo.textContent = state.combo >= 2 ? ("x" + state.combo) : "";
+        SN.hudScore.textContent = SN.state.score.toString().padStart(6, "0");
+        SN.hudCombo.textContent = SN.state.combo >= 2 ? ("x" + SN.state.combo) : "";
         let bar = "";
-        for (let i = 0; i < CONFIG.maxLives; i++) {
-            bar += i < state.player.lives ? "▮" : "▯";
+        for (let i = 0; i < SN.CONFIG.maxLives; i++) {
+            bar += i < SN.state.player.lives ? "▮" : "▯";
         }
-        hudLives.textContent = bar;
-        if (hudPower) {
+        SN.hudLives.textContent = bar;
+        if (SN.hudPower) {
             const parts = [];
-            const cb = state.player.crossbowUntil - nowMs;
+            const cb = SN.state.player.crossbowUntil - SN.nowMs;
             if (cb > 0) {
                 parts.push("🏹 " + Math.ceil(cb / 1000));
             }
-            const scy = state.player.scytheUntil - nowMs;
+            const scy = SN.state.player.scytheUntil - SN.nowMs;
             if (scy > 0) {
                 parts.push("⚔ " + Math.ceil(scy / 1000));
             }
-            hudPower.textContent = parts.join("  ");
+            SN.hudPower.textContent = parts.join("  ");
         }
-        if (hudStage) {
-            const s = stage();
-            hudStage.textContent = s.boss ? s.name + " — BOSS"
-                : state.phase === "cleared" ? s.name + " — CLEAR →"
-                    : s.name + "  " + Math.min(state.defeatedThisStage, s.quota) + "/" + s.quota;
+        if (SN.hudStage) {
+            const s = SN.stage();
+            SN.hudStage.textContent = s.boss ? s.name + " — BOSS"
+                : SN.state.phase === "cleared" ? s.name + " — CLEAR →"
+                    : s.name + "  " + Math.min(SN.state.defeatedThisStage, s.quota) + "/" + s.quota;
         }
-        if (bossBar) {
-            if (state.boss) {
-                bossBar.classList.remove("hidden");
-                if (bossName) {
-                    bossName.textContent = stage().name;
+        if (SN.bossBar) {
+            if (SN.state.boss) {
+                SN.bossBar.classList.remove("hidden");
+                if (SN.bossName) {
+                    SN.bossName.textContent = SN.stage().name;
                 }
-                bossFill.style.width = Math.max(0, (state.boss.hp / state.boss.maxHp) * 100) + "%";
+                SN.bossFill.style.width = Math.max(0, (SN.state.boss.hp / SN.state.boss.maxHp) * 100) + "%";
             }
             else {
-                bossBar.classList.add("hidden");
+                SN.bossBar.classList.add("hidden");
             }
         }
     }
+    SN.updateHud = updateHud;
+})(SN || (SN = {}));
+/*
+ * Stake Night — the requestAnimationFrame loop, the stage story overlays, and the run
+ * lifecycle: anti-cheat run token, entering/beginning stages, start, advance, and end.
+ */
+var SN;
+(function (SN) {
     // ---- Loop -------------------------------------------------------------
-    let rafId = 0, lastTs = 0, paused = false;
+    SN.rafId = 0, SN.lastTs = 0, SN.paused = false;
     function frame(ts) {
-        if (!state.running || paused) {
+        if (!SN.state.running || SN.paused) {
             return;
         }
-        if (!lastTs) {
-            lastTs = ts;
+        if (!SN.lastTs) {
+            SN.lastTs = ts;
         }
-        nowMs = ts;
-        let dt = (ts - lastTs) / 1000;
-        lastTs = ts;
+        SN.nowMs = ts;
+        let dt = (ts - SN.lastTs) / 1000;
+        SN.lastTs = ts;
         if (dt > 0.05) {
             dt = 0.05;
         }
-        update(dt);
-        if (state.running && !paused) {
-            render();
-            rafId = requestAnimationFrame(frame);
+        if (SN.state.hitStop > 0) {
+            SN.state.hitStop -= dt * 1000;
+        } // freeze-frame on impact: hold the sim, keep drawing
+        else {
+            SN.update(dt);
+        }
+        if (SN.state.running && !SN.paused) {
+            SN.render();
+            SN.rafId = requestAnimationFrame(frame);
         }
     }
+    SN.frame = frame;
     // ---- Stage flow + lifecycle -------------------------------------------
-    const overlayStart = document.getElementById("overlay-start");
-    const overlayOver = document.getElementById("overlay-over");
-    const overlayStory = document.getElementById("overlay-story");
-    const storyTitle = document.getElementById("story-title");
-    const storyText = document.getElementById("story-text");
-    const controls = document.getElementById("controls");
-    const btnThrow = document.getElementById("btn-throw");
-    let storyContinue = null;
+    SN.overlayStart = document.getElementById("overlay-start");
+    SN.overlayOver = document.getElementById("overlay-over");
+    SN.overlayStory = document.getElementById("overlay-story");
+    SN.storyTitle = document.getElementById("story-title");
+    SN.storyText = document.getElementById("story-text");
+    SN.controls = document.getElementById("controls");
+    SN.btnThrow = document.getElementById("btn-throw");
+    SN.storyContinue = null;
     function requestRunToken() {
         fetch("/api/run/start", { method: "POST" }).then(r => r.ok ? r.json() : null)
-            .then((d) => { if (d && d.token && state) {
-            state.runToken = d.token;
+            .then((d) => { if (d && d.token && SN.state) {
+            SN.state.runToken = d.token;
         } }).catch(() => { });
     }
+    SN.requestRunToken = requestRunToken;
     function showStory(s, idx, onContinue) {
-        cancelAnimationFrame(rafId);
-        paused = true;
-        storyContinue = onContinue;
-        if (storyTitle) {
-            storyTitle.textContent = "Stage " + (idx + 1) + " · " + s.name;
+        cancelAnimationFrame(SN.rafId);
+        SN.paused = true;
+        SN.storyContinue = onContinue;
+        if (SN.storyTitle) {
+            SN.storyTitle.textContent = "Stage " + (idx + 1) + " · " + s.name;
         }
-        if (storyText) {
-            storyText.textContent = s.story;
+        if (SN.storyText) {
+            SN.storyText.textContent = s.story;
         }
-        if (controls) {
-            controls.classList.add("hidden");
+        if (SN.controls) {
+            SN.controls.classList.add("hidden");
         }
-        if (overlayStory) {
-            overlayStory.classList.remove("hidden");
+        if (SN.overlayStory) {
+            SN.overlayStory.classList.remove("hidden");
         }
     }
+    SN.showStory = showStory;
     function continueStory() {
-        const cb = storyContinue;
-        storyContinue = null;
-        if (overlayStory) {
-            overlayStory.classList.add("hidden");
+        const cb = SN.storyContinue;
+        SN.storyContinue = null;
+        if (SN.overlayStory) {
+            SN.overlayStory.classList.add("hidden");
         }
         if (cb) {
             cb();
         }
     }
+    SN.continueStory = continueStory;
     function enterStage(i) {
-        state.stageIndex = i;
-        state.spawnedThisStage = 0;
-        state.defeatedThisStage = 0;
-        state.exitOpen = false;
-        state.bossSpawned = false;
-        state.enemies = [];
-        state.bolts = [];
-        state.pickups = [];
-        state.camX = state.player.x - viewW * 0.5;
-        seedBackground();
-        const s = STAGES[i];
+        SN.state.stageIndex = i;
+        SN.state.spawnedThisStage = 0;
+        SN.state.defeatedThisStage = 0;
+        SN.state.exitOpen = false;
+        SN.state.bossSpawned = false;
+        SN.state.enemies = [];
+        SN.state.bolts = [];
+        SN.state.pickups = [];
+        SN.state.camX = SN.state.player.x - SN.viewW * 0.5;
+        SN.seedBackground();
+        const s = SN.STAGES[i];
         if (s.levelUp) {
-            state.player.canThrow = true;
-            if (btnThrow) {
-                btnThrow.classList.remove("hidden");
+            SN.state.player.canThrow = true;
+            if (SN.btnThrow) {
+                SN.btnThrow.classList.remove("hidden");
             }
-            Sound.sfx.levelup();
+            SN.Sound.sfx.levelup();
         }
         showStory(s, i, () => beginStage(s));
     }
+    SN.enterStage = enterStage;
     function beginStage(s) {
-        state.phase = "playing";
-        state.spawnTimer = 500;
+        SN.state.phase = "playing";
+        SN.state.spawnTimer = 500;
         if (s.boss) {
-            spawnBoss();
+            SN.spawnBoss();
         }
-        state.banner = { text: s.name, until: nowMs + 2200 };
-        Sound.sfx.stage();
-        if (controls) {
-            controls.classList.remove("hidden");
-            controls.setAttribute("aria-hidden", "false");
+        SN.state.banner = { text: s.name, until: SN.nowMs + 2200 };
+        SN.Sound.sfx.stage();
+        if (SN.controls) {
+            SN.controls.classList.remove("hidden");
+            SN.controls.setAttribute("aria-hidden", "false");
         }
-        updateHud();
-        paused = false;
-        lastTs = 0;
-        rafId = requestAnimationFrame(frame);
+        SN.updateHud();
+        SN.paused = false;
+        SN.lastTs = 0;
+        SN.rafId = requestAnimationFrame(frame);
     }
+    SN.beginStage = beginStage;
     function startGame() {
-        resize();
-        Sound.resume();
-        Sound.startMusic();
-        state = freshState();
+        SN.resize();
+        SN.Sound.resume();
+        SN.Sound.startMusic();
+        SN.state = SN.freshState();
         requestRunToken();
-        state.running = true;
-        held.clear();
-        input.left = input.right = input.up = input.down = false;
-        input.jumpBufferedAt = -1e9;
-        overlayStart.classList.add("hidden");
-        overlayOver.classList.add("hidden");
-        if (btnThrow) {
-            btnThrow.classList.add("hidden");
+        SN.state.running = true;
+        SN.held.clear();
+        SN.input.left = SN.input.right = SN.input.up = SN.input.down = false;
+        SN.input.jumpBufferedAt = -1e9;
+        SN.overlayStart.classList.add("hidden");
+        SN.overlayOver.classList.add("hidden");
+        if (SN.btnThrow) {
+            SN.btnThrow.classList.add("hidden");
         }
-        hud.setAttribute("aria-hidden", "false");
-        updateHud();
+        SN.hud.setAttribute("aria-hidden", "false");
+        SN.updateHud();
         enterStage(0);
     }
+    SN.startGame = startGame;
     function advanceStage() {
-        if (state.stageIndex + 1 < STAGES.length) {
-            enterStage(state.stageIndex + 1);
+        if (SN.state.stageIndex + 1 < SN.STAGES.length) {
+            enterStage(SN.state.stageIndex + 1);
         }
     }
+    SN.advanceStage = advanceStage;
     function endGame(victory) {
-        state.running = false;
-        state.victory = victory;
-        cancelAnimationFrame(rafId);
-        Sound.stopMusic();
+        SN.state.running = false;
+        SN.state.victory = victory;
+        cancelAnimationFrame(SN.rafId);
+        SN.Sound.stopMusic();
         if (victory) {
-            Sound.sfx.win();
+            SN.Sound.sfx.win();
         }
         else {
-            Sound.sfx.over();
+            SN.Sound.sfx.over();
         }
-        render();
-        if (controls) {
-            controls.classList.add("hidden");
-            controls.setAttribute("aria-hidden", "true");
+        SN.render();
+        if (SN.controls) {
+            SN.controls.classList.add("hidden");
+            SN.controls.setAttribute("aria-hidden", "true");
         }
-        if (bossBar) {
-            bossBar.classList.add("hidden");
+        if (SN.bossBar) {
+            SN.bossBar.classList.add("hidden");
         }
-        showGameOver(victory);
+        SN.showGameOver(victory);
     }
-    // ---- Game over: initials + leaderboard --------------------------------
-    const overTitle = document.getElementById("over-title");
-    const finalScoreEl = document.getElementById("final-score");
-    const entryBlock = document.getElementById("entry-block");
-    const boardBlock = document.getElementById("board-block");
-    const boardList = document.getElementById("board-list");
-    const charButtons = Array.from(document.querySelectorAll("#initials .char"));
-    const btnSubmit = document.getElementById("btn-submit");
-    const initialsState = [0, 0, 0];
+    SN.endGame = endGame;
+})(SN || (SN = {}));
+/*
+ * Stake Night — the game-over overlay: arcade-style initials entry, score submission to
+ * /api/scores, and the all-time / today leaderboard. Wires its own buttons (all handlers
+ * reference symbols defined in this file).
+ */
+var SN;
+(function (SN) {
+    SN.overTitle = document.getElementById("over-title");
+    SN.finalScoreEl = document.getElementById("final-score");
+    SN.entryBlock = document.getElementById("entry-block");
+    SN.boardBlock = document.getElementById("board-block");
+    SN.boardList = document.getElementById("board-list");
+    SN.charButtons = Array.from(document.querySelectorAll("#initials .char"));
+    SN.btnSubmit = document.getElementById("btn-submit");
+    SN.initialsState = [0, 0, 0];
     function showGameOver(victory) {
-        if (overTitle) {
-            overTitle.textContent = victory ? "Sunnydale Saved" : "Dawn Breaks";
+        if (SN.overTitle) {
+            SN.overTitle.textContent = victory ? "Sunnydale Saved" : "Dawn Breaks";
         }
-        finalScoreEl.textContent = state.score.toLocaleString();
-        entryBlock.classList.remove("hidden");
-        boardBlock.classList.add("hidden");
-        btnSubmit.disabled = false;
-        btnSubmit.textContent = "Carve It In";
-        hud.setAttribute("aria-hidden", "true");
-        overlayOver.classList.remove("hidden");
+        SN.finalScoreEl.textContent = SN.state.score.toLocaleString();
+        SN.entryBlock.classList.remove("hidden");
+        SN.boardBlock.classList.add("hidden");
+        SN.btnSubmit.disabled = false;
+        SN.btnSubmit.textContent = "Carve It In";
+        SN.hud.setAttribute("aria-hidden", "true");
+        SN.overlayOver.classList.remove("hidden");
     }
-    charButtons.forEach(function (btn) {
+    SN.showGameOver = showGameOver;
+    SN.charButtons.forEach(function (btn) {
         var _a;
         const i = parseInt((_a = btn.dataset.i) !== null && _a !== void 0 ? _a : "0", 10);
-        btn.addEventListener("click", function () { initialsState[i] = (initialsState[i] + 1) % LETTERS.length; btn.textContent = LETTERS[initialsState[i]]; });
+        btn.addEventListener("click", function () { SN.initialsState[i] = (SN.initialsState[i] + 1) % SN.LETTERS.length; btn.textContent = SN.LETTERS[SN.initialsState[i]]; });
     });
-    function currentInitials() { return initialsState.map(i => LETTERS[i]).join(""); }
-    const tabAll = document.getElementById("tab-all");
-    const tabToday = document.getElementById("tab-today");
-    let lastSubmit = null;
-    let boardPeriod = "all";
-    btnSubmit.addEventListener("click", async function () {
-        btnSubmit.disabled = true;
-        btnSubmit.textContent = "Carving…";
-        lastSubmit = { initials: currentInitials(), score: state.score };
+    function currentInitials() { return SN.initialsState.map(i => SN.LETTERS[i]).join(""); }
+    SN.currentInitials = currentInitials;
+    SN.tabAll = document.getElementById("tab-all");
+    SN.tabToday = document.getElementById("tab-today");
+    SN.lastSubmit = null;
+    SN.boardPeriod = "all";
+    SN.btnSubmit.addEventListener("click", async function () {
+        SN.btnSubmit.disabled = true;
+        SN.btnSubmit.textContent = "Carving…";
+        SN.lastSubmit = { initials: currentInitials(), score: SN.state.score };
         let posted = null;
         try {
-            const resp = await fetch("/api/scores", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initials: lastSubmit.initials, score: lastSubmit.score, token: state.runToken }) });
+            const resp = await fetch("/api/scores", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initials: SN.lastSubmit.initials, score: SN.lastSubmit.score, token: SN.state.runToken }) });
             if (resp.ok) {
                 posted = await resp.json();
             }
         }
         catch (err) { /* offline */ }
-        entryBlock.classList.add("hidden");
-        boardBlock.classList.remove("hidden");
+        SN.entryBlock.classList.add("hidden");
+        SN.boardBlock.classList.remove("hidden");
         if (posted && posted.top) {
-            boardPeriod = "all";
+            SN.boardPeriod = "all";
             setActiveTab();
             renderBoard(posted.top);
         }
@@ -1281,7 +1561,7 @@
         }
     });
     async function loadBoard(period) {
-        boardPeriod = period;
+        SN.boardPeriod = period;
         setActiveTab();
         let top = [];
         try {
@@ -1293,15 +1573,18 @@
         catch (err) { /* empty */ }
         renderBoard(top);
     }
-    function setActiveTab() { tabAll === null || tabAll === void 0 ? void 0 : tabAll.classList.toggle("active", boardPeriod === "all"); tabToday === null || tabToday === void 0 ? void 0 : tabToday.classList.toggle("active", boardPeriod === "today"); }
-    function isMine(row) { return !!lastSubmit && row.initials === lastSubmit.initials && row.score === lastSubmit.score; }
+    SN.loadBoard = loadBoard;
+    function setActiveTab() { SN.tabAll === null || SN.tabAll === void 0 ? void 0 : SN.tabAll.classList.toggle("active", SN.boardPeriod === "all"); SN.tabToday === null || SN.tabToday === void 0 ? void 0 : SN.tabToday.classList.toggle("active", SN.boardPeriod === "today"); }
+    SN.setActiveTab = setActiveTab;
+    function isMine(row) { return !!SN.lastSubmit && row.initials === SN.lastSubmit.initials && row.score === SN.lastSubmit.score; }
+    SN.isMine = isMine;
     function renderBoard(top) {
-        boardList.innerHTML = "";
+        SN.boardList.innerHTML = "";
         if (!top || top.length === 0) {
             const li = document.createElement("li");
             li.className = "empty";
-            li.textContent = boardPeriod === "today" ? "No slayers tonight — yet." : "No souls tallied yet. Be the first.";
-            boardList.appendChild(li);
+            li.textContent = SN.boardPeriod === "today" ? "No slayers tonight — yet." : "No souls tallied yet. Be the first.";
+            SN.boardList.appendChild(li);
             return;
         }
         let mineShown = false;
@@ -1321,26 +1604,38 @@
             s.className = "s";
             s.textContent = Number(row.score).toLocaleString();
             li.append(r, i, s);
-            boardList.appendChild(li);
+            SN.boardList.appendChild(li);
         });
     }
-    tabAll === null || tabAll === void 0 ? void 0 : tabAll.addEventListener("click", () => { loadBoard("all"); });
-    tabToday === null || tabToday === void 0 ? void 0 : tabToday.addEventListener("click", () => { loadBoard("today"); });
-    document.getElementById("btn-start").addEventListener("click", startGame);
-    document.getElementById("btn-again").addEventListener("click", startGame);
-    (_a = document.getElementById("btn-story-continue")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", continueStory);
-    overlayStory === null || overlayStory === void 0 ? void 0 : overlayStory.addEventListener("pointerdown", (e) => { e.preventDefault(); continueStory(); });
+    SN.renderBoard = renderBoard;
+    SN.tabAll === null || SN.tabAll === void 0 ? void 0 : SN.tabAll.addEventListener("click", () => { loadBoard("all"); });
+    SN.tabToday === null || SN.tabToday === void 0 ? void 0 : SN.tabToday.addEventListener("click", () => { loadBoard("today"); });
+})(SN || (SN = {}));
+/*
+ * Stake Night — entry point. Loaded LAST in the concatenated build so every SN.* symbol it
+ * wires up (start/again/story buttons, mute, the boot render) is already defined.
+ *
+ * Build: Scripts/*.ts → wwwroot/js/game.js via tsc (outFile concatenation; see tsconfig.json).
+ * The page loads that single file as a plain <script> — no bundler, no module loader.
+ */
+var SN;
+(function (SN) {
+    var _a;
+    document.getElementById("btn-start").addEventListener("click", SN.startGame);
+    document.getElementById("btn-again").addEventListener("click", SN.startGame);
+    (_a = document.getElementById("btn-story-continue")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", SN.continueStory);
+    SN.overlayStory === null || SN.overlayStory === void 0 ? void 0 : SN.overlayStory.addEventListener("pointerdown", (e) => { e.preventDefault(); SN.continueStory(); });
     const btnMute = document.getElementById("btn-mute");
     function refreshMuteIcon() { if (btnMute) {
-        btnMute.textContent = Sound.isMuted() ? "🔇" : "🔊";
+        btnMute.textContent = SN.Sound.isMuted() ? "🔇" : "🔊";
     } }
-    btnMute === null || btnMute === void 0 ? void 0 : btnMute.addEventListener("click", () => { Sound.resume(); Sound.toggleMute(); refreshMuteIcon(); Sound.sfx.ui(); });
+    btnMute === null || btnMute === void 0 ? void 0 : btnMute.addEventListener("click", () => { SN.Sound.resume(); SN.Sound.toggleMute(); refreshMuteIcon(); SN.Sound.sfx.ui(); });
     refreshMuteIcon();
     // ---- Boot -------------------------------------------------------------
-    loadSheets();
-    resize();
-    state = freshState();
-    state.camX = -viewW * 0.5;
-    seedBackground();
-    render();
-})();
+    SN.loadSheets();
+    SN.resize();
+    SN.state = SN.freshState();
+    SN.state.camX = -SN.viewW * 0.5;
+    SN.seedBackground();
+    SN.render();
+})(SN || (SN = {}));

@@ -1,24 +1,46 @@
 {
-  // Compiles the Stake Night game from Scripts/*.ts to wwwroot/js/*.js.
+  // Compiles the Stake Night game from Scripts/*.ts into the single wwwroot/js/game.js.
   // Runs automatically during `dotnet build` (see the CompileGameTypeScript target in
   // SunnydaleLibrary.csproj). ES2019 target so tsc downlevels optional-chaining / nullish
-  // for older iOS captive webviews. Emits a plain IIFE — no module loader, no bundler.
+  // for older iOS captive webviews.
+  //
+  // The game is split across many Scripts/*.ts files, each `namespace SN { ... }`. None use
+  // import/export, so `outFile` concatenates them — in the `files` order below — into one
+  // plain script (namespace IIFEs, no module loader, no bundler). `main.ts` is wired LAST so
+  // every SN.* symbol exists before boot. `outFile` requires `module` to be amd/system/none;
+  // with no real modules present, amd emits the same clean concatenation (and, unlike `none`,
+  // is not slated for removal in TS 7.0).
   "compilerOptions": {
     "target": "ES2019",
     "lib": ["ES2019", "DOM", "DOM.Iterable"],
-    // The game has no import/export (single global IIFE), so the module system is irrelevant
-    // to emit. Use a current value — "none" is deprecated and removed in TS 7.0.
-    "module": "ESNext",
+    "module": "amd",
+    "outFile": "wwwroot/js/game.js",
     "strict": true,
     "noEmitOnError": false,
     "removeComments": false,
     "sourceMap": false,
     "incremental": true,
     "tsBuildInfoFile": "obj/tsbuild/game.tsbuildinfo",
-    "outDir": "wwwroot/js",
     "rootDir": "Scripts",
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["Scripts/**/*.ts"]
+  // Order matters for outFile: data/engine first, immediate DOM wiring last (main.ts).
+  "files": [
+    "Scripts/types.ts",
+    "Scripts/config.ts",
+    "Scripts/canvas.ts",
+    "Scripts/sound.ts",
+    "Scripts/sprites.ts",
+    "Scripts/state.ts",
+    "Scripts/input.ts",
+    "Scripts/spawn.ts",
+    "Scripts/combat.ts",
+    "Scripts/update.ts",
+    "Scripts/render.ts",
+    "Scripts/hud.ts",
+    "Scripts/flow.ts",
+    "Scripts/gameover.ts",
+    "Scripts/main.ts"
+  ]
 }

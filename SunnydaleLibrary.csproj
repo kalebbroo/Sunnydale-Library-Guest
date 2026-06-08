@@ -37,7 +37,7 @@
     so the image always recompiles from source. Runs before static web assets are gathered.
   -->
   <Target Name="CompileGameTypeScript" BeforeTargets="BeforeBuild">
-    <Message Importance="high" Text="[Stake Night] Compiling TypeScript (Scripts/game.ts -> wwwroot/js/game.js)..." />
+    <Message Importance="high" Text="[Stake Night] Compiling TypeScript (Scripts/*.ts -> wwwroot/js/game.js)..." />
     <Exec Command="npm install --no-audit --no-fund --silent"
           WorkingDirectory="$(MSBuildProjectDirectory)"
           Condition="!Exists('$(MSBuildProjectDirectory)/node_modules')"
