@@ -1,30 +1,38 @@
-/* Sunnydale Library guest portal — mobile-first.
-   No external @import / CDN — captive portals will block them.
-   Color vars at the top so a future after-dark mode can swap them. */
+/* Sunnydale High School Library — guest sign-in (the "innocent daytime" facade; the game is the
+   after-dark side). Mobile-first. No external @import / CDN — captive portals block them.
+   Warm aged-parchment card framed in dark walnut, with a green banker's-lamp glow. */
 :root {
-    --bg: #f4ead2;
-    --paper: #fbf6e7;
-    --ink: #2b1d10;
+    --wood0: #3c2817;
+    --wood1: #211208;
+    --paper: #efe4c6;
+    --paper2: #e7d8b2;
+    --ink: #2a1c0f;
     --rule: #8a6a3c;
-    --accent: #6b1d1d;
-    --muted: #6b5c43;
-    --shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+    --gilt: #b88a3e;
+    --gilt-2: #d8b163;
+    --accent: #7a1d1d;
+    --muted: #6f6048;
+    --lamp: #3f9e6e;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
     --serif: Georgia, "Hoefler Text", "Times New Roman", Times, serif;
 }
 
-*, *::before, *::after {
-    box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
 
 html, body {
     margin: 0;
     padding: 0;
-    background: var(--bg);
     color: var(--ink);
     font-family: var(--serif);
     font-size: 17px;
     line-height: 1.45;
     -webkit-text-size-adjust: 100%;
+    /* Dark walnut desk: vignette + a faint vertical wood grain. */
+    background:
+        radial-gradient(120% 80% at 50% 0%, rgba(63, 158, 110, 0.10), transparent 55%),
+        radial-gradient(140% 120% at 50% 38%, #4a3320 0%, var(--wood0) 38%, var(--wood1) 100%);
+    background-attachment: fixed;
+    min-height: 100%;
 }
 
 a {
@@ -41,36 +49,69 @@ a {
     justify-content: center;
 }
 
+/* ---- The card ---- */
 .card {
-    background: var(--paper);
-    border: 1px solid var(--rule);
-    border-radius: 4px;
-    box-shadow: var(--shadow);
-    padding: 22px 18px 18px;
+    position: relative;
+    background:
+        linear-gradient(180deg, var(--paper) 0%, var(--paper2) 100%);
+    border: 1px solid #1c1208;
+    border-radius: 5px;
+    box-shadow: var(--shadow), inset 0 0 0 2px rgba(184, 138, 62, 0.5), inset 0 0 0 3px rgba(255, 255, 255, 0.25);
+    padding: 20px 18px 16px;
     max-width: 520px;
     width: 100%;
-    margin: 8px 0 24px;
+    margin: 10px 0 28px;
+    overflow: hidden;
 }
 
+/* Soft green banker's-lamp wash spilling down from the top of the card. */
+.card .lamp {
+    position: absolute;
+    top: -46px; left: 50%;
+    width: 240px; height: 120px;
+    transform: translateX(-50%);
+    background: radial-gradient(ellipse at center, rgba(63, 158, 110, 0.35), transparent 70%);
+    pointer-events: none;
+}
+
+/* ---- Crest / header ---- */
 .crest {
+    position: relative;
     text-align: center;
-    border-bottom: 1px double var(--rule);
+    border-bottom: 3px double var(--rule);
     padding-bottom: 14px;
     margin-bottom: 16px;
 }
 
+/* Razorbacks crest — maroon ring + gold inner ring (the team's maroon & gold). */
+.crest .seal {
+    width: 64px; height: 64px;
+    margin: 2px auto 10px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    background: radial-gradient(circle at 50% 35%, #fbf3dc, #efe0bd);
+    border: 2px solid var(--accent);
+    box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 4px var(--gilt), 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.crest .seal b { display: block; color: var(--accent); font-size: 1.0rem; letter-spacing: 0.12em; line-height: 1; }
+.crest .seal small { display: block; font-size: 0.4rem; letter-spacing: 0.05em; color: #9a7322; margin-top: 3px; font-weight: bold; }
+
 .crest h1 {
-    font-size: 1.7rem;
+    font-size: 1.72rem;
     margin: 0;
     letter-spacing: 0.02em;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
 }
-
 .crest .sub {
-    font-size: 1.1rem;
+    display: block;
+    font-size: 1.05rem;
     font-style: italic;
     color: var(--muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
 }
-
 .crest .motto {
     margin: 8px 0 0;
     font-style: italic;
@@ -78,64 +119,36 @@ a {
     font-size: 0.95rem;
 }
 
-.hours {
+/* ---- Hours + circulation (disguised leaderboard) ---- */
+.hours, .circulation {
     border: 1px solid var(--rule);
-    background: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.35);
     padding: 10px 12px;
-    margin: 0 0 16px;
+    margin: 0 0 14px;
     font-size: 0.95rem;
+    border-radius: 3px;
 }
-
-.hours strong {
-    display: block;
-    margin-bottom: 4px;
-}
-
-.hours ul {
-    margin: 0;
-    padding-left: 18px;
-}
-
-.hours s {
-    color: var(--muted);
-}
-
-/* "Frequently Checked Out" circulation card — disguised leaderboard, links into the game. */
-.circulation {
-    display: block;
-    border: 1px solid var(--rule);
-    background: rgba(255, 255, 255, 0.4);
-    padding: 10px 12px;
-    margin: 0 0 16px;
-    font-size: 0.95rem;
-    color: var(--ink);
-    text-decoration: none;
-}
-
-.circulation:hover { background: rgba(255, 255, 255, 0.62); }
-
-.circulation strong {
+.hours strong, .circulation strong {
     display: block;
     margin-bottom: 6px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    color: var(--muted);
 }
+.hours ul { margin: 0; padding-left: 18px; }
+.hours s { color: var(--muted); }
 
-.circulation ol {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    counter-reset: circ;
-}
-
+.circulation ol { margin: 0; padding: 0; list-style: none; }
 .circulation li {
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    padding: 2px 0;
+    padding: 3px 0;
     border-bottom: 1px dotted var(--rule);
 }
-
 .circulation li:last-child { border-bottom: none; }
-.circulation .who { letter-spacing: 0.12em; }
+.circulation .who { letter-spacing: 0.14em; font-weight: bold; }
 .circulation .count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .circulation .empty { margin: 0; color: var(--muted); font-style: italic; }
 .circulation .tonight {
@@ -146,78 +159,150 @@ a {
     font-style: italic;
     color: var(--muted);
 }
-.circulation .tonight .who { font-style: normal; font-weight: bold; color: var(--ink); }
+.circulation .tonight .who { font-style: normal; color: var(--ink); }
+.circulation .overdue { margin: 7px 0 0; font-size: 0.78rem; font-style: italic; color: var(--muted); }
+.circulation .overdue em { color: var(--accent); }
 
-.lead {
-    margin: 0 0 14px;
-}
+/* ---- The register (form) ---- */
+.lead { margin: 2px 0 14px; }
 
-form.signin label {
+.register .field { margin: 0 0 12px; }
+
+.register label {
     display: block;
     font-weight: bold;
-    margin: 12px 0 4px;
+    margin: 12px 0 6px;
+    letter-spacing: 0.04em;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    color: var(--muted);
 }
 
-form.signin input[type="text"],
-form.signin select {
-    /* font-size 16px keeps iOS from auto-zooming on focus */
-    width: 100%;
-    font-size: 16px;
-    font-family: inherit;
-    padding: 10px 12px;
-    min-height: 44px;
-    border: 1px solid var(--rule);
-    border-radius: 3px;
-    background: #fff;
+/* Initials picker: three native selects → iOS scroll wheel, Android dropdown, no keyboard. */
+.initials-pick { display: flex; gap: 10px; }
+.initials-pick .ltr {
+    flex: 1;
+    text-align: center;
+    text-align-last: center;
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 0.12em;
     color: var(--ink);
+    min-height: 52px;
+    padding: 8px 6px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: #fffdf4;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+    appearance: none;
+    -webkit-appearance: none;
 }
+.field-hint { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); font-style: italic; }
 
-form.signin select {
+.register select#Reason,
+.register input[type="text"] {
+    width: 100%;
+    font-size: 16px; /* keeps iOS from auto-zooming on focus */
+    font-family: inherit;
+    padding: 11px 12px;
+    min-height: 46px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: #fffdf4;
+    color: var(--ink);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.10);
+}
+.register select#Reason {
     appearance: none;
     -webkit-appearance: none;
     background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%),
                       linear-gradient(135deg, var(--ink) 50%, transparent 50%);
-    background-position: calc(100% - 18px) 18px, calc(100% - 12px) 18px;
+    background-position: calc(100% - 18px) 20px, calc(100% - 12px) 20px;
     background-size: 6px 6px, 6px 6px;
     background-repeat: no-repeat;
     padding-right: 36px;
 }
+.register .ltr:focus,
+.register select#Reason:focus,
+.register input[type="text"]:focus {
+    outline: none;
+    border-color: var(--gilt);
+    box-shadow: 0 0 0 3px rgba(184, 138, 62, 0.3), inset 0 1px 3px rgba(0, 0, 0, 0.10);
+}
 
-form.signin .terms {
+.register .terms {
     display: flex;
     gap: 10px;
     align-items: flex-start;
     margin: 16px 0 4px;
     font-size: 0.95rem;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--ink);
 }
+.register .terms input[type="checkbox"] { width: 22px; height: 22px; margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
 
-form.signin .terms input[type="checkbox"] {
-    width: 22px;
-    height: 22px;
-    margin-top: 2px;
-    flex-shrink: 0;
-}
-
-form.signin button {
-    margin-top: 18px;
-    width: 100%;
-    min-height: 48px;
-    font-size: 1.05rem;
+/* Sign-in (Wi-Fi) button + the conditional stake to its right. */
+.submit-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.register button {
+    flex: 1;
+    min-height: 50px;
+    font-size: 1.06rem;
     font-family: inherit;
-    background: var(--ink);
+    background: linear-gradient(180deg, #34230f, #21150a);
     color: var(--paper);
-    border: 1px solid var(--ink);
-    border-radius: 3px;
+    border: 1px solid #15100a;
+    box-shadow: inset 0 0 0 1px rgba(216, 177, 99, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
     cursor: pointer;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+}
+.register button:active { transform: translateY(1px); }
+.register button:disabled {
+    background: #cabfa3;
+    color: #8c7e62;
+    border-color: #b3a586;
+    box-shadow: none;
+    cursor: not-allowed;
 }
 
-form.signin button:active {
-    transform: translateY(1px);
+/* The stake — a low-key wooden stake that only appears for "Slaying-Related" visitors. Bounces
+   + glows so a curious slayer goes "...what's that?" and taps it into the game. */
+.stake-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    min-height: 50px;
+    text-decoration: none;
+    border-radius: 4px;
+    position: relative;
+}
+.stake-btn[hidden] { display: none; }
+.stake-btn::after {
+    content: "";
+    position: absolute; inset: auto 0 4px 0;
+    height: 8px;
+    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.28), transparent 70%);
+    animation: stake-shadow 1.1s ease-in-out infinite;
+}
+.stake-btn .stake {
+    width: 16px; height: 42px;
+    background: linear-gradient(90deg, #6e451f 0%, #a8763a 42%, #d8b163 52%, #7a5024 78%, #5e3a18 100%);
+    clip-path: polygon(18% 0, 82% 0, 82% 60%, 50% 100%, 18% 60%);
+    box-shadow: 0 0 12px rgba(216, 177, 99, 0.6);
+    animation: stake-bounce 1.1s ease-in-out infinite;
+}
+@keyframes stake-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes stake-shadow { 0%, 100% { transform: scaleX(1); opacity: 0.5; } 50% { transform: scaleX(0.7); opacity: 0.28; } }
+@media (prefers-reduced-motion: reduce) {
+    .stake-btn .stake, .stake-btn::after { animation: none; }
 }
 
 .error {
-    background: #fde7e7;
+    background: #fbe3df;
     border: 1px solid var(--accent);
     color: var(--accent);
     padding: 10px 12px;
@@ -231,36 +316,11 @@ form.signin button:active {
     padding-top: 12px;
     border-top: 1px solid var(--rule);
     text-align: center;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--muted);
 }
 
-/* Subtle stake tucked in the corner — the low-key way into the game. */
-.card-footer .stake {
-    position: absolute;
-    right: 2px;
-    bottom: 0;
-    color: var(--rule);
-    opacity: 0.5;
-    text-decoration: none;
-    font-size: 0.9rem;
-    line-height: 1;
-    transform: rotate(35deg);
-    transition: opacity 0.15s ease;
-}
-
-.card-footer .stake:hover { opacity: 1; }
-
-.success h1 {
-    margin-top: 0;
-}
-
-.success .hint,
-.error-card .hint {
-    font-size: 0.85rem;
-    color: var(--muted);
-}
-
-.policy ul {
-    padding-left: 20px;
-}
+/* ---- Success / Policy / Error share the card ---- */
+.success h1, .policy h1, .error-card h1 { margin-top: 0; }
+.success .hint, .error-card .hint { font-size: 0.85rem; color: var(--muted); }
+.policy ul { padding-left: 20px; }

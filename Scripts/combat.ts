@@ -40,7 +40,7 @@ namespace SN {
         }
         if (hitAny) {
             p.chain++; p.chainAt = nowMs;
-            if (finisher) { Sound.sfx.finisher(); state.shake = Math.max(state.shake, 8); }
+            if (finisher) { Sound.sfx.finisher(); state.shake = Math.max(state.shake, 8); spawnPopup(p.x, feetY(p.z, 0) - p.h - 22, FINISHER_QUIPS[Math.floor(Math.random() * FINISHER_QUIPS.length)]); }
             if (airborne) { p.vy = CONFIG.jumpAtkBounce; p.onGround = false; }   // pogo off the hit
         } else { state.combo = 0; p.chain = 0; Sound.sfx.whiff(); updateHud(); }
     }
@@ -76,8 +76,9 @@ namespace SN {
         if (!state || !state.running) { return; }
         const p = state.player;
         if (!p.canThrow || nowMs - p.lastThrowMs < CONFIG.throwCooldownMs) { return; }
-        p.lastThrowMs = nowMs; p.attackUntil = nowMs + CONFIG.attackMs; p.anim = "attack"; p.animStart = nowMs;
+        p.lastThrowMs = nowMs; p.attackUntil = nowMs + CONFIG.attackMs; p.anim = "throw"; p.animStart = nowMs;
         fire("stake"); Sound.sfx.shoot();
+        if (Math.random() < 0.34) { spawnPopup(p.x, feetY(p.z, 0) - p.h - 18, "Mr. Pointy!"); }
     }
 
     export function fire(kind: "bolt" | "stake"): void {

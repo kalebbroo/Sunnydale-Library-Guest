@@ -4,9 +4,12 @@
     ViewData["Title"] = "Sunnydale High School Library — Sign In";
 }
 
-<section class="card">
+<section class="card signin-card">
+    <div class="lamp" aria-hidden="true"></div>
+
     <header class="crest">
-        <h1>Sunnydale High School<br /><span class="sub">Library</span></h1>
+        <div class="seal" aria-label="Sunnydale Razorbacks"><span><b>SHS</b><small>RAZORBACKS</small></span></div>
+        <h1>Sunnydale High School<span class="sub">Library</span></h1>
         <p class="motto">"Knowledge is the highest good."</p>
     </header>
 
@@ -19,9 +22,8 @@
         </ul>
     </aside>
 
-    @* Hidden in plain sight: this "circulation card" is the Stake Night leaderboard.
-       Reads as borrow counts to a casual guest; the whole card links into the game. *@
-    <a class="circulation" href="/Game" aria-label="Frequently checked out">
+    @* Hidden in plain sight: the Stake Night leaderboard, dressed up as circulation counts. *@
+    <section class="circulation" aria-label="Frequently checked out">
         <strong>Frequently Checked Out</strong>
         @if (Model.TopScores.Count == 0)
         {
@@ -40,31 +42,51 @@
         {
             <p class="tonight">Tonight&rsquo;s top slayer: <span class="who">@Model.TonightsTop.Initials</span> &middot; @Model.TonightsTop.Score.ToString("N0")</p>
         }
-    </a>
+        <p class="overdue">Overdue: <em>Vampyr</em> &middot; <em>Pergamum Codex</em> &middot; <em>Sefer Hadath</em></p>
+    </section>
 
     @if (!string.IsNullOrEmpty(Model.ErrorMessage))
     {
         <p class="error" role="alert">@Model.ErrorMessage</p>
     }
 
-    <form method="post" asp-page="/Success" class="signin" novalidate>
+    <form method="post" asp-page="/Success" class="register" novalidate>
         <p class="lead">Please sign the register before using the library&rsquo;s resources.</p>
 
-        <label for="Name">Name</label>
-        <input id="Name" name="Name" type="text" required maxlength="80"
-               autocapitalize="words" autocomplete="given-name" inputmode="text" />
+        <div class="field">
+            <label id="initials-label">Your initials</label>
+            <div class="initials-pick" role="group" aria-labelledby="initials-label">
+                <select class="ltr" id="i0" aria-label="First initial">
+                    <option value="" selected>&ndash;</option>
+                    @for (char c = 'A'; c <= 'Z'; c++) { <option value="@c">@c</option> }
+                </select>
+                <select class="ltr" id="i1" aria-label="Second initial">
+                    <option value="" selected>&ndash;</option>
+                    @for (char c = 'A'; c <= 'Z'; c++) { <option value="@c">@c</option> }
+                </select>
+                <select class="ltr" id="i2" aria-label="Third initial">
+                    <option value="" selected>&ndash;</option>
+                    @for (char c = 'A'; c <= 'Z'; c++) { <option value="@c">@c</option> }
+                </select>
+            </div>
+            <p class="field-hint">Three letters &mdash; they&rsquo;ll mark your name in the records.</p>
+        </div>
+        @* The backend register expects a single Name; the three letters are synced into it. *@
+        <input type="hidden" id="Name" name="Name" value="" />
 
-        <label for="Reason">Reason for visit</label>
-        <select id="Reason" name="Reason" required>
-            <option value="">&mdash; Select &mdash;</option>
-            <option value="Research">Research</option>
-            <option value="Studying">Studying</option>
-            <option value="Slaying-Related">Slaying-Related</option>
-            <option value="Just Browsing">Just Browsing</option>
-        </select>
+        <div class="field">
+            <label for="Reason">Reason for visit</label>
+            <select id="Reason" name="Reason" required>
+                <option value="" selected>&mdash; Select &mdash;</option>
+                <option value="Research">Research</option>
+                <option value="Studying">Studying</option>
+                <option value="Just Browsing">Just Browsing</option>
+                <option value="Slaying-Related">Slaying-Related</option>
+            </select>
+        </div>
 
         <label class="terms">
-            <input type="checkbox" name="TermsAccepted" value="true" required />
+            <input type="checkbox" id="Terms" name="TermsAccepted" value="true" required />
             <span>I&rsquo;ve read the <a href="/Policy">library policy</a> and agree to its terms.</span>
         </label>
 
@@ -75,12 +97,48 @@
         <input type="hidden" name="Url" value="@Model.RedirectParams.Url" />
         <input type="hidden" name="Ssid" value="@Model.RedirectParams.Ssid" />
 
-        <button type="submit">Sign In</button>
+        <div class="submit-row">
+            <button type="submit" id="signin-btn" disabled>Sign In</button>
+            <a class="stake-btn" id="stake-btn" href="/Game" hidden aria-label="Mr. Pointy" title="Mr. Pointy">
+                <span class="stake" aria-hidden="true"></span>
+            </a>
+        </div>
     </form>
 
     <footer class="card-footer">
         <span>&copy; 1999 Sunnydale High School Library</span>
-        @* Easy-but-not-obvious way in: a small stake tucked in the footer links to the game. *@
-        <a class="stake" href="/Game" aria-label="After hours" title="After hours">&#10072;&#9650;</a>
     </footer>
 </section>
+
+<script>
+    // Progressive register: combine the three initial-selects into the hidden Name, enable Sign In
+    // only when initials + reason + policy are set, and reveal the stake (into the game) for the
+    // slayers among us. Initials persist to localStorage so the game pre-fills them.
+    (function () {
+        var i = [document.getElementById('i0'), document.getElementById('i1'), document.getElementById('i2')];
+        var name = document.getElementById('Name');
+        var reason = document.getElementById('Reason');
+        var terms = document.getElementById('Terms');
+        var btn = document.getElementById('signin-btn');
+        var stake = document.getElementById('stake-btn');
+        var SLAYER = 'Slaying-Related';
+        function complete() { return i[0].value !== '' && i[1].value !== '' && i[2].value !== ''; }
+        function letters() { return (i[0].value + i[1].value + i[2].value).toUpperCase(); }
+        function sync() {
+            name.value = letters();
+            if (complete()) { try { localStorage.setItem('sn-initials', letters()); } catch (e) {} }
+            btn.disabled = !(complete() && reason.value !== '' && terms.checked);
+            if (complete() && reason.value === SLAYER) { stake.removeAttribute('hidden'); }
+            else { stake.setAttribute('hidden', ''); }
+        }
+        // Restore previously chosen initials (e.g., after a game) so they don't re-pick every time.
+        try {
+            var saved = (localStorage.getItem('sn-initials') || '').toUpperCase();
+            if (/^[A-Z]{3}$/.test(saved)) { i[0].value = saved[0]; i[1].value = saved[1]; i[2].value = saved[2]; }
+        } catch (e) {}
+        [i[0], i[1], i[2], reason, terms].forEach(function (el) {
+            el.addEventListener('change', sync); el.addEventListener('input', sync);
+        });
+        sync();
+    })();
+</script>

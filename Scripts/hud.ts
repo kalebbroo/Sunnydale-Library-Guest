@@ -33,7 +33,7 @@ namespace SN {
                 : s.name + "  " + Math.min(state.defeatedThisStage, s.quota) + "/" + s.quota + waveTag;
         }
         if (bossBar) {
-            if (state.boss) { bossBar.classList.remove("hidden"); if (bossName) { bossName.textContent = stage().name; } bossFill.style.width = Math.max(0, (state.boss.hp / state.boss.maxHp) * 100) + "%"; }
+            if (state.boss) { bossBar.classList.remove("hidden"); if (bossName) { bossName.textContent = "The Master — Order of Aurelius"; } bossFill.style.width = Math.max(0, (state.boss.hp / state.boss.maxHp) * 100) + "%"; }
             else { bossBar.classList.add("hidden"); }
         }
     }

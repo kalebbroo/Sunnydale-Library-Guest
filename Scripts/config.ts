@@ -43,6 +43,14 @@ namespace SN {
 
     export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+    // Buffy-flavored one-liners. Finisher quips float up on a combo finisher; the over-screen
+    // flavor lines vary the game-over card.
+    export const FINISHER_QUIPS = ["Mr. Pointy says hi.", "That'll leave a mark.", "Welcome to the Hellmouth.", "Dust to dust.", "Class dismissed.", "Have we met?"];
+    export const OVER_QUIPS: { win: string[]; loss: string[] } = {
+        win: ["Sunnydale sleeps. For now.", "One girl in all the world — and she won.", "The Hellmouth holds.", "Knowledge is the highest good."],
+        loss: ["\"The Earth is doomed.\" — Giles", "Tomorrow you might be dead.", "The Master rises…", "Sunrise is hours away."],
+    };
+
     export const ENEMY_TYPES: Record<string, EnemyDef> = {
         grunt:  { hp: 2, w: 30, h: 62, speed: 80,  points: 120, color: "#1c1430", weight: () => 1.0,                         windup: 380, recover: 520, knock: 300, guard: 0    },
         runner: { hp: 1, w: 26, h: 56, speed: 150, points: 160, color: "#3a1330", weight: t => Math.max(0, t - 0.1) * 1.3,  windup: 240, recover: 360, knock: 260, guard: 0    },
@@ -52,15 +60,15 @@ namespace SN {
     // ---- Stages (data-driven scenes; last one is the boss) ----------------
     export const STAGES: Stage[] = [
         { name: "Restfield Cemetery", quota: 6, waves: [3, 3], bg: "cemetery", palette: { sky0: "#0b0a14", sky1: "#241a30", floor0: "#2a2440", floor1: "#15101f", grave: "#161020" },
-          story: "Patrol's on. The dead don't rest in Sunnydale — clear the fledglings prowling Restfield." },
+          story: "\"In every generation there is a Chosen One. She alone will stand against the vampires, the demons, and the forces of darkness. She is the Slayer.\"\nPatrol's on — clear the fledglings prowling Restfield." },
         { name: "The Crypt", quota: 8, waves: [4, 4], bg: "crypt", palette: { sky0: "#0a0f14", sky1: "#16242a", floor0: "#223036", floor1: "#0e1418", grave: "#0d1a1f" },
-          story: "Down into the crypt. Colder here, and something's been feeding well." },
+          story: "Down into the crypt. Colder here, and something's been feeding well — the Order of Aurelius marks its own." },
         { name: "Sunnydale High Halls", quota: 10, waves: [3, 3, 4], bg: "halls", levelUp: true, palette: { sky0: "#14100a", sky1: "#2a2014", floor0: "#3a2f1f", floor1: "#1a140c", grave: "#241a10" },
-          story: "Back at school after dark. Giles stocked your locker — a brace of throwing stakes.\nLEVEL UP: press THROW (L) to hurl a stake!" },
+          story: "Back at school after dark. Giles left your locker open — Kendra's lucky stake, Mr. Pointy.\nLEVEL UP: press THROW (L) to hurl it!" },
         { name: "The Library", quota: 12, waves: [4, 4, 4], bg: "library", palette: { sky0: "#0e0a14", sky1: "#241a30", floor0: "#2e2640", floor1: "#16101f", grave: "#1a1428" },
-          story: "The library sits right over the Hellmouth. They're pouring out. Hold the line." },
+          story: "The library sits right over the Hellmouth — an octagonal room, a red line on the floor, and the Seal of Danzalthar breathing below. They're pouring out. Hold the line." },
         { name: "The Master's Lair", quota: 0, boss: true, bg: "lair", palette: { sky0: "#160608", sky1: "#2a0c10", floor0: "#2a1014", floor1: "#120608", grave: "#1c0a0c" },
-          story: "The Master himself. This is what you were chosen for, Slayer. End it." },
+          story: "Heinrich Joseph Nest. The Master. Oldest vampire on record — and tonight he wants the Harvest. The Codex says he kills you, Slayer. Prove it wrong." },
     ];
     export function stage(): Stage { return STAGES[Math.max(0, Math.min(state.stageIndex, STAGES.length - 1))]; }
 

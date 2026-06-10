@@ -299,6 +299,7 @@ html, body {
     font-family: inherit;
 }
 
+.panel .over-flavor { margin: -2px 0 14px; font-style: italic; color: var(--gold); opacity: 0.85; font-size: 1rem; }
 .panel .final { font-size: 1.2rem; margin: 0 0 16px; }
 .panel .final span { color: var(--gold); font-weight: bold; }
 .panel .story-text { white-space: pre-line; color: var(--ink); margin: 0 0 20px; line-height: 1.5; }

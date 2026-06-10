@@ -5,6 +5,7 @@
  */
 namespace SN {
     export const overTitle = document.getElementById("over-title") as HTMLElement | null;
+    export const overFlavor = document.getElementById("over-flavor") as HTMLElement | null;
     export const finalScoreEl = document.getElementById("final-score") as HTMLElement;
     export const entryBlock = document.getElementById("entry-block") as HTMLElement;
     export const boardBlock = document.getElementById("board-block") as HTMLElement;
@@ -15,6 +16,7 @@ namespace SN {
 
     export function showGameOver(victory: boolean): void {
         if (overTitle) { overTitle.textContent = victory ? "Sunnydale Saved" : "Dawn Breaks"; }
+        if (overFlavor) { const pool = victory ? OVER_QUIPS.win : OVER_QUIPS.loss; overFlavor.textContent = pool[Math.floor(Math.random() * pool.length)]; }
         finalScoreEl.textContent = state.score.toLocaleString();
         entryBlock.classList.remove("hidden"); boardBlock.classList.add("hidden");
         btnSubmit.disabled = false; btnSubmit.textContent = "Carve It In";
@@ -27,6 +29,16 @@ namespace SN {
     });
     export function currentInitials(): string { return initialsState.map(i => LETTERS[i]).join(""); }
 
+    // Pre-fill the arcade initials from the ones picked on the sign-in register (still editable).
+    (function restoreInitials(): void {
+        try {
+            const saved = (localStorage.getItem("sn-initials") || "").toUpperCase();
+            if (!/^[A-Z]{3}$/.test(saved)) { return; }
+            for (let i = 0; i < 3; i++) { const idx = LETTERS.indexOf(saved[i]); if (idx >= 0) { initialsState[i] = idx; } }
+            charButtons.forEach(b => { const i = parseInt(b.dataset.i ?? "0", 10); b.textContent = LETTERS[initialsState[i]]; });
+        } catch { /* no storage */ }
+    })();
+
     export const tabAll = document.getElementById("tab-all") as HTMLElement | null;
     export const tabToday = document.getElementById("tab-today") as HTMLElement | null;
     export let lastSubmit: { initials: string; score: number } | null = null;
@@ -35,6 +47,7 @@ namespace SN {
     btnSubmit.addEventListener("click", async function () {
         btnSubmit.disabled = true; btnSubmit.textContent = "Carving…";
         lastSubmit = { initials: currentInitials(), score: state.score };
+        try { localStorage.setItem("sn-initials", currentInitials()); } catch { /* no storage */ }   // carry back to the register
         let posted: { top: Row[] } | null = null;
         try {
             const resp = await fetch("/api/scores", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ initials: lastSubmit.initials, score: lastSubmit.score, token: state.runToken }) });
